@@ -1,3 +1,5 @@
+/* style.css — Portal Gamer */
+
 :root {
   --primary-color: #6366f1;
   --primary-hover: #4f46e5;
@@ -25,6 +27,7 @@ body {
   flex-direction: column;
 }
 
+/* ── Layout ─────────────────────────────────────────────────────────────── */
 .container {
   max-width: 1000px;
   margin: 0 auto;
@@ -32,11 +35,12 @@ body {
   width: 100%;
 }
 
+/* ── Header ─────────────────────────────────────────────────────────────── */
 .site-header {
   background-color: var(--surface-color);
   border-bottom: 1px solid var(--border-color);
   padding: 1.2rem 0;
-  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, .1);
   position: sticky;
   top: 0;
   z-index: 10;
@@ -53,7 +57,7 @@ body {
   font-weight: 800;
   color: var(--primary-color);
   letter-spacing: -0.5px;
-  text-shadow: 0px 0px 10px rgba(99, 102, 241, 0.2);
+  text-shadow: 0 0 10px rgba(99, 102, 241, .2);
 }
 
 .site-header nav a {
@@ -63,7 +67,7 @@ body {
   margin-left: 1.5rem;
   padding: 0.5rem 0.8rem;
   border-radius: 6px;
-  transition: all 0.2s ease;
+  transition: all .2s ease;
 }
 
 .site-header nav a:hover {
@@ -71,29 +75,32 @@ body {
   color: white;
 }
 
+/* ── Content ─────────────────────────────────────────────────────────────── */
 .content-area {
   flex: 1;
   padding: 3rem 1.5rem;
 }
 
+/* ── Card base ───────────────────────────────────────────────────────────── */
 .shadow-card {
   background-color: var(--surface-color);
   border: 1px solid var(--border-color);
   padding: 2rem;
   border-radius: 12px;
-  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
-  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, .1);
+  transition: transform .2s ease, box-shadow .2s ease;
 }
 
 .shadow-card:hover {
   transform: translateY(-2px);
-  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.2), 0 10px 10px -5px rgba(0, 0, 0, 0.1);
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, .2);
 }
 
+/* ── Hero ────────────────────────────────────────────────────────────────── */
 .hero-section h2 {
   font-size: 2.2rem;
   font-weight: 800;
-  margin-bottom: 0.5rem;
+  margin-bottom: .5rem;
   background: linear-gradient(135deg, #a5b4fc 0%, #6366f1 100%);
   -webkit-background-clip: text;
   background-clip: text;
@@ -105,6 +112,7 @@ body {
   font-size: 1.1rem;
 }
 
+/* ── Utilitários ─────────────────────────────────────────────────────────── */
 .mt-2 {
   margin-top: 2rem;
 }
@@ -114,20 +122,32 @@ h3 {
   margin-bottom: 1.2rem;
   display: flex;
   align-items: center;
-  gap: 0.5rem;
+  gap: .5rem;
 }
 
+/* ── Tag (badge de jogo) ─────────────────────────────────────────────────── */
+.tag {
+  display: inline-block;
+  background: rgba(99, 102, 241, .2);
+  color: var(--primary-color);
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 0.2rem 0.6rem;
+  border-radius: 99px;
+  border: 1px solid rgba(99, 102, 241, .3);
+  letter-spacing: .03em;
+}
+
+/* ── Lista de notícias (home) ────────────────────────────────────────────── */
 .news-list {
-  list-style-type: none;
+  list-style: none;
 }
 
 .news-list li {
   padding: 1rem;
   border-bottom: 1px solid var(--border-color);
-  display: flex;
-  align-items: center;
-  transition: background-color 0.2s ease;
   border-radius: 6px;
+  transition: background-color .2s;
 }
 
 .news-list li:last-child {
@@ -135,7 +155,7 @@ h3 {
 }
 
 .news-list li:hover {
-  background-color: rgba(99, 102, 241, 0.1);
+  background-color: rgba(99, 102, 241, .1);
 }
 
 .news-list li::before {
@@ -145,6 +165,146 @@ h3 {
   font-weight: bold;
 }
 
+.news-list li a {
+  color: var(--text-color);
+  text-decoration: none;
+  display: flex;
+  align-items: center;
+  gap: .8rem;
+  flex-wrap: wrap;
+}
+
+.news-list li a:hover .noticia-titulo {
+  color: var(--primary-color);
+}
+
+.noticia-titulo {
+  font-weight: 600;
+  transition: color .2s;
+}
+
+/* ── Botão "Ver mais" ────────────────────────────────────────────────────── */
+.ver-mais {
+  margin-top: 1.5rem;
+  text-align: right;
+}
+
+.btn-ver-mais {
+  color: var(--primary-color);
+  text-decoration: none;
+  font-weight: 600;
+  font-size: .9rem;
+  border: 1px solid var(--primary-color);
+  padding: .45rem 1rem;
+  border-radius: 8px;
+  transition: all .2s;
+}
+
+.btn-ver-mais:hover {
+  background: var(--primary-color);
+  color: white;
+}
+
+/* ── Grid de notícias (/noticias) ────────────────────────────────────────── */
+.noticias-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 1.5rem;
+  margin-top: 1.5rem;
+}
+
+.noticia-card {
+  background: rgba(255, 255, 255, .02);
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  padding: 1.4rem;
+  display: flex;
+  flex-direction: column;
+  gap: .7rem;
+  transition: border-color .2s, transform .2s;
+}
+
+.noticia-card:hover {
+  border-color: var(--primary-color);
+  transform: translateY(-2px);
+}
+
+.noticia-header {
+  display: flex;
+  align-items: center;
+  gap: .6rem;
+  flex-wrap: wrap;
+}
+
+.data-noticia {
+  font-size: .78rem;
+  color: var(--text-muted);
+}
+
+.noticia-card h3 {
+  font-size: 1rem;
+  margin-bottom: 0;
+}
+
+.noticia-card h3 a {
+  color: var(--text-color);
+  text-decoration: none;
+}
+
+.noticia-card h3 a:hover {
+  color: var(--primary-color);
+}
+
+.noticia-resumo {
+  color: var(--text-muted);
+  font-size: .9rem;
+  flex: 1;
+}
+
+.btn-ler-mais {
+  align-self: flex-start;
+  color: var(--primary-color);
+  text-decoration: none;
+  font-weight: 600;
+  font-size: .85rem;
+  transition: color .2s;
+}
+
+.btn-ler-mais:hover {
+  color: var(--primary-hover);
+}
+
+/* ── Detalhe de notícia ──────────────────────────────────────────────────── */
+.noticia-detalhe h2 {
+  font-size: 1.8rem;
+  font-weight: 800;
+  margin: .8rem 0 1.2rem;
+  line-height: 1.3;
+}
+
+.noticia-corpo p {
+  color: var(--text-muted);
+  font-size: 1.05rem;
+  line-height: 1.8;
+  margin-bottom: 1rem;
+}
+
+.noticia-footer {
+  margin-top: 2rem;
+}
+
+.btn-voltar {
+  color: var(--text-muted);
+  text-decoration: none;
+  font-size: .9rem;
+  transition: color .2s;
+}
+
+.btn-voltar:hover {
+  color: var(--text-color);
+}
+
+/* ── Ranking table ───────────────────────────────────────────────────────── */
 .ranking-table {
   width: 100%;
   border-collapse: collapse;
@@ -162,24 +322,57 @@ h3 {
   font-weight: 600;
   color: var(--text-muted);
   text-transform: uppercase;
-  font-size: 0.85rem;
-  letter-spacing: 0.05em;
+  font-size: .85rem;
+  letter-spacing: .05em;
 }
 
 .ranking-table tbody tr:hover td {
-  background-color: rgba(99, 102, 241, 0.05);
+  background-color: rgba(99, 102, 241, .05);
 }
 
-.ranking-table td:first-child {
+.ranking-table .posicao {
+  font-weight: 800;
+  color: var(--text-muted);
+  width: 3rem;
+}
+
+.ranking-table .nome-jogo {
   font-weight: 600;
   color: var(--primary-color);
 }
 
+.ranking-table .genero {
+  color: var(--text-muted);
+  font-size: .9rem;
+}
+
+/* ── Sem dados / Erro ────────────────────────────────────────────────────── */
+.sem-dados {
+  color: var(--text-muted);
+  padding: 1rem 0;
+}
+
+.erro-page {
+  text-align: center;
+  padding: 4rem 2rem;
+}
+
+.erro-page h2 {
+  font-size: 2rem;
+  margin-bottom: 1rem;
+}
+
+.erro-page p {
+  color: var(--text-muted);
+  margin-bottom: 2rem;
+}
+
+/* ── Footer ──────────────────────────────────────────────────────────────── */
 .site-footer {
   text-align: center;
   padding: 2rem 0;
   color: var(--text-muted);
-  font-size: 0.9rem;
+  font-size: .9rem;
   border-top: 1px solid var(--border-color);
   background-color: var(--surface-color);
 }

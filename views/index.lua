@@ -1,3 +1,5 @@
+-- Página principal — exibe as notícias recentes vindas do banco de dados
+
 local Widget = require("lapis.html").Widget
 
 return Widget:extend(function(self)
@@ -8,10 +10,25 @@ return Widget:extend(function(self)
 
   section({ class = "news-section shadow-card mt-2" }, function()
     h3("🔥 Notícias Recentes")
-    ul({ class = "news-list" }, function()
-      li("Novo update de Valorant lançado!")
-      li("League of Legends anuncia novo campeão.")
-      li("CS2 bate recorde de jogadores.")
+
+    if self.noticias and #self.noticias > 0 then
+      ul({ class = "news-list" }, function()
+        for _, noticia in ipairs(self.noticias) do
+          li(function()
+            -- Link para a página de detalhe da notícia
+            a({ href = "/noticias/" .. noticia.id }, function()
+              span({ class = "noticia-titulo" }, noticia.titulo)
+              span({ class = "noticia-jogo tag" }, noticia.jogo)
+            end)
+          end)
+        end
+      end)
+    else
+      p({ class = "sem-dados" }, "Nenhuma notícia disponível no momento.")
+    end
+
+    div({ class = "ver-mais" }, function()
+      a({ href = "/noticias", class = "btn-ver-mais" }, "Ver todas as notícias →")
     end)
   end)
 end)
