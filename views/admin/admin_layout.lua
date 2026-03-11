@@ -1,0 +1,35 @@
+-- Layout exclusivo do painel administrativo
+
+local Widget = require("lapis.html").Widget
+
+return Widget:extend(function(self)
+  html_5(function()
+    head(function()
+      meta({ charset = "UTF-8" })
+      meta({ name = "viewport", content = "width=device-width, initial-scale=1.0" })
+      title("Admin — Portal Gamer")
+      link({ rel = "stylesheet", href = "/static/style.css" })
+      link({ rel = "stylesheet", href = "/static/admin.css" })
+      link({ href = "https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap", rel = "stylesheet" })
+    end)
+    body({ class = "admin-body" }, function()
+      -- Sidebar de navegação
+      nav({ class = "admin-sidebar" }, function()
+        div({ class = "admin-brand" }, function()
+          span("⚙️")
+          span("Admin")
+        end)
+        ul(function()
+          li(function() a({ href = "/admin" }, "📋 Painel") end)
+          li(function() a({ href = "/admin/noticias/nova" }, "➕ Nova Notícia") end)
+          li(function() a({ href = "/" }, "🌐 Ver site") end)
+          li(function() a({ href = "/admin/logout", class = "logout-link" }, "🚪 Sair") end)
+        end)
+      end)
+      -- Área de conteúdo principal
+      main({ class = "admin-main" }, function()
+        self:content_for("inner")
+      end)
+    end)
+  end)
+end)
