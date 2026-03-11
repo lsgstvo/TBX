@@ -23,7 +23,7 @@ return Widget:extend(function(self)
     end)
 
     if self.noticias and #self.noticias > 0 then
-      table({ class = "admin-table" }, function()
+      element("table", { class = "admin-table" }, function()
         thead(function()
           tr(function()
             th("ID")

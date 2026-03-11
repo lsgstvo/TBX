@@ -22,7 +22,7 @@ return Widget:extend(function(self)
       div({ class = "form-group" }, function()
         label({ ["for"] = "jogo" }, "Jogo relacionado")
         -- Select com os jogos cadastrados no banco
-        select({ id = "jogo", name = "jogo" }, function()
+        element("select", { id = "jogo", name = "jogo" }, function()
           option({ value = "" }, "— Selecione um jogo —")
           for _, j in ipairs(self.jogos or {}) do
             option({ value = j.nome }, j.nome)
