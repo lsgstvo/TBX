@@ -3,6 +3,7 @@
 /* ── Layout com sidebar ──────────────────────────────────────────────────── */
 .admin-body {
     display: flex;
+    flex-direction: row;
     min-height: 100vh;
     background-color: var(--bg-color);
 }

@@ -7,7 +7,7 @@ return Widget:extend(function(self)
     h2("🏆 Ranking de Jogos Populares")
 
     if self.jogos and #self.jogos > 0 then
-      table({ class = "ranking-table" }, function()
+      element("table", { class = "ranking-table" }, function()
         thead(function()
           tr(function()
             th("#")
