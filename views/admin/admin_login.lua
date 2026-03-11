@@ -18,12 +18,12 @@ return Widget:extend(function(self)
       -- Formulário de login
       form({ method = "POST", action = "/admin/login", class = "login-form" }, function()
         div({ class = "form-group" }, function()
-          label({ for = "usuario" }, "Usuário")
+          label({ ["for"] = "usuario" }, "Usuário")
           input({ type = "text", id = "usuario", name = "usuario",
                   placeholder = "Digite seu usuário", autocomplete = "username", required = true })
         end)
         div({ class = "form-group" }, function()
-          label({ for = "senha" }, "Senha")
+          label({ ["for"] = "senha" }, "Senha")
           input({ type = "password", id = "senha", name = "senha",
                   placeholder = "Digite sua senha", autocomplete = "current-password", required = true })
         end)

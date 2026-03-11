@@ -14,13 +14,13 @@ return Widget:extend(function(self)
     form({ method = "POST", action = "/admin/noticias/nova", class = "admin-form" }, function()
 
       div({ class = "form-group" }, function()
-        label({ for = "titulo" }, "Título *")
+        label({ ["for"] = "titulo" }, "Título *")
         input({ type = "text", id = "titulo", name = "titulo",
                 placeholder = "Ex: Novo update de Valorant!", required = true })
       end)
 
       div({ class = "form-group" }, function()
-        label({ for = "jogo" }, "Jogo relacionado")
+        label({ ["for"] = "jogo" }, "Jogo relacionado")
         -- Select com os jogos cadastrados no banco
         select({ id = "jogo", name = "jogo" }, function()
           option({ value = "" }, "— Selecione um jogo —")
@@ -31,7 +31,7 @@ return Widget:extend(function(self)
       end)
 
       div({ class = "form-group" }, function()
-        label({ for = "conteudo" }, "Conteúdo *")
+        label({ ["for"] = "conteudo" }, "Conteúdo *")
         textarea({ id = "conteudo", name = "conteudo", rows = "8",
                    placeholder = "Escreva o conteúdo completo da notícia...",
                    required = true })

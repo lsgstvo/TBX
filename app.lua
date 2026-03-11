@@ -56,7 +56,7 @@ app:get("/admin/login", function(self)
   end
   self.erro = self.session.login_erro
   self.session.login_erro = nil
-  return { render = "admin.login", layout = "admin.layout" }
+  return { render = "admin.admin_login", layout = "admin.admin_layout" }
 end)
 
 app:post("/admin/login", function(self)
@@ -85,7 +85,7 @@ app:get("/admin", function(self)
   if not auth.require_login(self) then return end
   self.noticias = db.get_noticias()
   self.jogos    = db.get_jogos()
-  return { render = "admin.painel", layout = "admin.layout" }
+  return { render = "admin.admin_painel", layout = "admin.admin_layout" }
 end)
 
 -- ─── Admin: Nova notícia (formulário) ────────────────────────────────────────
@@ -95,7 +95,7 @@ app:get("/admin/noticias/nova", function(self)
   self.jogos = db.get_jogos()
   self.erro  = self.session.form_erro
   self.session.form_erro = nil
-  return { render = "admin.noticia_form", layout = "admin.layout" }
+  return { render = "admin.admin_noticia_form", layout = "admin.admin_layout" }
 end)
 
 -- ─── Admin: Nova notícia (salvar) ────────────────────────────────────────────

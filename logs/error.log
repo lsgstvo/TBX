@@ -23,3 +23,7 @@
 2026/03/10 20:21:13 [alert] 18323#18323: lua_code_cache is off; this will hurt performance in /home/tibull/portal-esportivo/nginx.conf.compiled:20
 2026/03/10 20:24:24 [alert] 19236#19236: lua_code_cache is off; this will hurt performance in /home/tibull/portal-esportivo/nginx.conf.compiled:20
 2026/03/10 20:25:40 [alert] 19563#19563: lua_code_cache is off; this will hurt performance in /home/tibull/portal-esportivo/nginx.conf.compiled:20
+2026/03/10 21:06:54 [alert] 3794#3794: lua_code_cache is off; this will hurt performance in /home/tibull/portal-esportivo/nginx.conf.compiled:20
+2026/03/10 21:07:34 [alert] 4089#4089: lua_code_cache is off; this will hurt performance in /home/tibull/portal-esportivo/nginx.conf.compiled:20
+2026/03/10 21:11:07 [alert] 5073#5073: lua_code_cache is off; this will hurt performance in /home/tibull/portal-esportivo/nginx.conf.compiled:20
+2026/03/10 21:14:08 [alert] 5908#5908: lua_code_cache is off; this will hurt performance in /home/tibull/portal-esportivo/nginx.conf.compiled:20
