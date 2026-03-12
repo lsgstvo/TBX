@@ -9,6 +9,7 @@
   --text-muted: #94a3b8;
   --border-color: #334155;
   --accent-color: #f43f5e;
+  --gold-color: #f59e0b;
 }
 
 * {
@@ -27,7 +28,6 @@ body {
   flex-direction: column;
 }
 
-/* ── Layout ──────────────────────────────────────────────────────────────── */
 .container {
   max-width: 1000px;
   margin: 0 auto;
@@ -40,6 +40,7 @@ body {
   background-color: var(--surface-color);
   border-bottom: 1px solid var(--border-color);
   padding: 1.2rem 0;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, .1);
   position: sticky;
   top: 0;
   z-index: 10;
@@ -51,19 +52,26 @@ body {
   align-items: center;
 }
 
-.site-header h1 {
+.site-brand {
   font-size: 1.5rem;
   font-weight: 800;
   color: var(--primary-color);
+  text-decoration: none;
   letter-spacing: -0.5px;
+}
+
+.site-header nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
 }
 
 .site-header nav a {
   color: var(--text-color);
   text-decoration: none;
   font-weight: 600;
-  margin-left: 1.5rem;
-  padding: 0.5rem 0.8rem;
+  margin-left: 1rem;
+  padding: .5rem .8rem;
   border-radius: 6px;
   transition: all .2s;
 }
@@ -73,13 +81,12 @@ body {
   color: white;
 }
 
-/* ── Content ─────────────────────────────────────────────────────────────── */
 .content-area {
   flex: 1;
   padding: 3rem 1.5rem;
 }
 
-/* ── Card base ───────────────────────────────────────────────────────────── */
+/* ── Cards ───────────────────────────────────────────────────────────────── */
 .shadow-card {
   background-color: var(--surface-color);
   border: 1px solid var(--border-color);
@@ -100,9 +107,11 @@ body {
   font-weight: 800;
   margin-bottom: .5rem;
   background: linear-gradient(135deg, #a5b4fc 0%, #6366f1 100%);
+  color: transparent; /* Padrão atual para fallback do texto transparente */
   -webkit-background-clip: text;
   background-clip: text;
   -webkit-text-fill-color: transparent;
+  width: fit-content;
 }
 
 .hero-section p {
@@ -110,20 +119,25 @@ body {
   font-size: 1.1rem;
 }
 
-/* ── Utilitários ─────────────────────────────────────────────────────────── */
 .mt-2 {
   margin-top: 2rem;
 }
 
+h2 {
+  font-size: 1.6rem;
+  font-weight: 800;
+  margin-bottom: 1.2rem;
+}
+
 h3 {
-  font-size: 1.5rem;
+  font-size: 1.3rem;
   margin-bottom: 1.2rem;
   display: flex;
   align-items: center;
   gap: .5rem;
 }
 
-/* ── Tag ─────────────────────────────────────────────────────────────────── */
+/* ── Tags ────────────────────────────────────────────────────────────────── */
 .tag {
   display: inline-block;
   background: rgba(99, 102, 241, .2);
@@ -141,7 +155,74 @@ a.tag:hover {
   background: rgba(99, 102, 241, .4);
 }
 
-/* ── Lista de notícias (home) ────────────────────────────────────────────── */
+.tag-jogo {
+  background: rgba(245, 158, 11, .15);
+  color: var(--gold-color);
+  border-color: rgba(245, 158, 11, .3);
+}
+
+a.tag-jogo:hover {
+  background: rgba(245, 158, 11, .3);
+}
+
+/* ── Badge destaque ──────────────────────────────────────────────────────── */
+.badge-destaque {
+  display: inline-block;
+  background: rgba(245, 158, 11, .2);
+  color: var(--gold-color);
+  font-size: .72rem;
+  font-weight: 700;
+  padding: .15rem .5rem;
+  border-radius: 99px;
+  border: 1px solid rgba(245, 158, 11, .35);
+}
+
+/* ── Seção de destaques (home) ───────────────────────────────────────────── */
+
+.destaque-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 1.2rem;
+  margin-top: 1.2rem;
+}
+
+.destaque-card {
+  background: rgba(245, 158, 11, .05);
+  border: 1px solid rgba(245, 158, 11, .2);
+  border-radius: 10px;
+  padding: 1.4rem;
+  display: flex;
+  flex-direction: column;
+  gap: .7rem;
+  transition: border-color .2s, transform .2s;
+}
+
+.destaque-card:hover {
+  border-color: var(--gold-color);
+  transform: translateY(-2px);
+}
+
+.destaque-meta {
+  display: flex;
+  gap: .5rem;
+  flex-wrap: wrap;
+}
+
+.destaque-card h3 {
+  font-size: 1rem;
+  margin-bottom: 0;
+}
+
+.destaque-card h3 a {
+  color: var(--text-color);
+  text-decoration: none;
+}
+
+.destaque-card h3 a:hover {
+  color: var(--gold-color);
+}
+
+/* ── Lista home ──────────────────────────────────────────────────────────── */
 .news-list {
   list-style: none;
 }
@@ -173,7 +254,7 @@ a.tag:hover {
   text-decoration: none;
   display: flex;
   align-items: center;
-  gap: .8rem;
+  gap: .6rem;
   flex-wrap: wrap;
 }
 
@@ -184,9 +265,9 @@ a.tag:hover {
 .noticia-titulo {
   font-weight: 600;
   transition: color .2s;
+  flex: 1;
 }
 
-/* ── Botão "Ver mais" ────────────────────────────────────────────────────── */
 .ver-mais {
   margin-top: 1.5rem;
   text-align: right;
@@ -208,72 +289,100 @@ a.tag:hover {
   color: white;
 }
 
-/* ── Header da listagem de notícias ──────────────────────────────────────── */
+/* ── Filtros de categoria ────────────────────────────────────────────────── */
+.categoria-filtros {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .5rem;
+  margin-bottom: 1.5rem;
+}
+
+.filtro-btn {
+  color: var(--text-muted);
+  text-decoration: none;
+  font-size: .85rem;
+  font-weight: 600;
+  padding: .35rem .9rem;
+  border-radius: 99px;
+  border: 1px solid var(--border-color);
+  transition: all .2s;
+}
+
+.filtro-btn:hover {
+  border-color: var(--primary-color);
+  color: var(--primary-color);
+}
+
+.filtro-ativo {
+  background: var(--primary-color);
+  border-color: var(--primary-color);
+  color: white !important;
+}
+
+/* ── Notícias: header + busca ────────────────────────────────────────────── */
 .noticias-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  margin-bottom: 1.2rem;
   flex-wrap: wrap;
   gap: 1rem;
-  margin-bottom: 1.5rem;
 }
 
 .noticias-header h2 {
   margin-bottom: 0;
 }
 
-/* ── Busca ───────────────────────────────────────────────────────────────── */
-.search-form {
+.busca-form {
   display: flex;
   gap: .5rem;
 }
 
-.search-input {
+.busca-input {
   background: var(--bg-color);
   border: 1px solid var(--border-color);
   color: var(--text-color);
-  padding: .5rem 1rem;
+  padding: .55rem 1rem;
   border-radius: 8px;
   font-size: .9rem;
   font-family: inherit;
   outline: none;
-  width: 240px;
+  width: 220px;
   transition: border-color .2s;
+  max-width: 100%;
 }
 
-.search-input:focus {
+.busca-input:focus {
   border-color: var(--primary-color);
   box-shadow: 0 0 0 3px rgba(99, 102, 241, .15);
 }
 
-.search-btn {
+.busca-btn {
   background: var(--primary-color);
   color: white;
   border: none;
-  padding: .5rem .9rem;
+  padding: .55rem .9rem;
   border-radius: 8px;
   cursor: pointer;
   font-size: .95rem;
   transition: background .2s;
 }
 
-.search-btn:hover {
+.busca-btn:hover {
   background: var(--primary-hover);
 }
 
-.search-feedback {
+.busca-resultado {
   color: var(--text-muted);
   font-size: .9rem;
-  margin-bottom: .5rem;
+  margin-bottom: 1rem;
 }
 
-.limpar-busca {
-  color: var(--accent-color);
-  text-decoration: none;
-  font-size: .85rem;
-  font-weight: 600;
-  display: inline-block;
-  margin-bottom: 1.5rem;
+.busca-vazia {
+  padding: 2rem 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
 }
 
 /* ── Grid de notícias ────────────────────────────────────────────────────── */
@@ -300,16 +409,26 @@ a.tag:hover {
   transform: translateY(-2px);
 }
 
+.card-destaque {
+  border-color: rgba(245, 158, 11, .3) !important;
+  background: rgba(245, 158, 11, .04) !important;
+}
+
+.card-destaque:hover {
+  border-color: var(--gold-color) !important;
+}
+
 .noticia-header {
   display: flex;
   align-items: center;
-  gap: .6rem;
+  gap: .5rem;
   flex-wrap: wrap;
 }
 
 .data-noticia {
   font-size: .78rem;
   color: var(--text-muted);
+  margin-left: auto;
 }
 
 .noticia-card h3 {
@@ -338,6 +457,7 @@ a.tag:hover {
   text-decoration: none;
   font-weight: 600;
   font-size: .85rem;
+  transition: color .2s;
 }
 
 .btn-ler-mais:hover {
@@ -350,18 +470,23 @@ a.tag:hover {
   justify-content: center;
   align-items: center;
   gap: .5rem;
-  margin-top: 2rem;
+  margin-top: 2.5rem;
   flex-wrap: wrap;
 }
 
 .pag-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 2.2rem;
+  height: 2.2rem;
+  padding: 0 .6rem;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
   color: var(--text-muted);
   text-decoration: none;
   font-weight: 600;
   font-size: .9rem;
-  padding: .45rem .85rem;
-  border-radius: 8px;
-  border: 1px solid var(--border-color);
   transition: all .2s;
 }
 
@@ -370,10 +495,10 @@ a.tag:hover {
   color: var(--primary-color);
 }
 
-.pag-ativo {
+.pag-atual {
   background: var(--primary-color);
+  border-color: var(--primary-color);
   color: white !important;
-  border-color: var(--primary-color) !important;
 }
 
 /* ── Detalhe de notícia ──────────────────────────────────────────────────── */
@@ -406,51 +531,71 @@ a.tag:hover {
   color: var(--text-color);
 }
 
-/* ── Página de detalhe do jogo ───────────────────────────────────────────── */
-.jogo-hero h2 {
-  font-size: 2rem;
-  font-weight: 800;
-  margin: .8rem 0 1.5rem;
+/* ── Perfil de jogo ──────────────────────────────────────────────────────── */
+.jogo-header {
+  display: flex;
+  gap: 1.5rem;
+  align-items: flex-start;
 }
 
-.jogo-badge {
+.jogo-capa {
+  width: 140px;
+  height: 140px;
+  border-radius: 12px;
+  overflow: hidden;
+  flex-shrink: 0;
+  border: 1px solid var(--border-color);
+}
+
+.jogo-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.jogo-capa-placeholder {
+  background: rgba(99, 102, 241, .1);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 2.5rem;
+  font-weight: 800;
+  color: var(--primary-color);
+}
+
+.jogo-info {
+  flex: 1;
+}
+
+.jogo-info h2 {
+  font-size: 1.9rem;
+  margin-bottom: .6rem;
+}
+
+.jogo-meta {
   display: flex;
   align-items: center;
   gap: .8rem;
-  margin-bottom: .5rem;
-}
-
-.jogo-posicao {
-  font-size: 1rem;
-  font-weight: 800;
-  color: var(--text-muted);
-}
-
-.jogo-stats {
-  display: flex;
-  gap: 2rem;
   flex-wrap: wrap;
-  margin-top: .5rem;
+  margin-bottom: .8rem;
 }
 
-.jogo-stat {
-  display: flex;
-  flex-direction: column;
-  gap: .2rem;
-}
-
-.stat-label {
-  font-size: .78rem;
+.jogo-players {
   color: var(--text-muted);
-  text-transform: uppercase;
-  letter-spacing: .05em;
+  font-size: .9rem;
+}
+
+.jogo-rank {
+  color: var(--gold-color);
+  font-size: .9rem;
   font-weight: 600;
 }
 
-.stat-valor {
-  font-size: 1rem;
-  font-weight: 700;
-  color: var(--text-color);
+.jogo-descricao {
+  color: var(--text-muted);
+  font-size: .95rem;
+  line-height: 1.7;
+  margin-top: .5rem;
 }
 
 /* ── Ranking table ───────────────────────────────────────────────────────── */
@@ -529,4 +674,58 @@ a.tag:hover {
   font-size: .9rem;
   border-top: 1px solid var(--border-color);
   background-color: var(--surface-color);
+}
+
+/* ── Mobile & Responsividade ─────────────────────────────────────────────── */
+@media (max-width: 768px) {
+  .header-inner {
+    flex-direction: column;
+    gap: 1rem;
+    text-align: center;
+  }
+  
+  .site-header nav {
+    justify-content: center;
+  }
+  
+  .site-header nav a {
+    margin-left: 0;
+  }
+
+  .content-area {
+    padding: 2rem 1rem;
+  }
+
+  .shadow-card {
+    padding: 1.5rem;
+  }
+
+  .jogo-header {
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+  }
+
+  .jogo-meta {
+    justify-content: center;
+  }
+
+  .ranking-table {
+    display: block;
+    overflow-x: auto;
+    white-space: nowrap;
+  }
+
+  .noticias-header {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .busca-form {
+    width: 100%;
+  }
+
+  .busca-input {
+    flex: 1;
+  }
 }

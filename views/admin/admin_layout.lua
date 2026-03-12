@@ -1,5 +1,4 @@
--- Layout exclusivo do painel administrativo
-
+-- views/admin/admin_layout.lua
 local Widget = require("lapis.html").Widget
 
 return Widget:extend(function(self)
@@ -13,20 +12,18 @@ return Widget:extend(function(self)
       link({ href = "https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap", rel = "stylesheet" })
     end)
     body({ class = "admin-body" }, function()
-      -- Sidebar de navegação
       nav({ class = "admin-sidebar" }, function()
         div({ class = "admin-brand" }, function()
-          span("⚙️")
-          span("Admin")
+          span("⚙️"); span("Admin")
         end)
         ul(function()
-          li(function() a({ href = "/admin" }, "📋 Painel") end)
-          li(function() a({ href = "/admin/noticias/nova" }, "➕ Nova Notícia") end)
-          li(function() a({ href = "/" }, "🌐 Ver site") end)
+          li(function() a({ href = "/admin" },                  "📋 Painel")       end)
+          li(function() a({ href = "/admin/noticias/nova" },    "➕ Nova Notícia")  end)
+          li(function() a({ href = "/admin/jogos/novo" },       "🎮 Novo Jogo")     end)
+          li(function() a({ href = "/" },                       "🌐 Ver site")      end)
           li(function() a({ href = "/admin/logout", class = "logout-link" }, "🚪 Sair") end)
         end)
       end)
-      -- Área de conteúdo principal
       main({ class = "admin-main" }, function()
         self:content_for("inner")
       end)

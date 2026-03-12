@@ -1,8 +1,7 @@
-/* admin.css — Estilos exclusivos do painel administrativo */
+/* admin.css — Painel Administrativo */
 
 .admin-body {
     display: flex;
-    flex-direction: row;
     min-height: 100vh;
     background-color: var(--bg-color);
 }
@@ -63,7 +62,7 @@
 .admin-main {
     flex: 1;
     padding: 2.5rem;
-    max-width: 900px;
+    max-width: 960px;
 }
 
 /* ── Stats ───────────────────────────────────────────────────────────────── */
@@ -71,6 +70,7 @@
     display: flex;
     gap: 1.2rem;
     margin-bottom: 2rem;
+    flex-wrap: wrap;
 }
 
 .stat-card {
@@ -82,7 +82,7 @@
     flex-direction: column;
     align-items: center;
     gap: .3rem;
-    min-width: 130px;
+    min-width: 120px;
 }
 
 .stat-numero {
@@ -131,7 +131,7 @@
     background-color: var(--primary-hover);
 }
 
-/* ── Tabela admin ────────────────────────────────────────────────────────── */
+/* ── Tabela ──────────────────────────────────────────────────────────────── */
 .admin-table {
     width: 100%;
     border-collapse: collapse;
@@ -158,7 +158,7 @@
 }
 
 .titulo-col {
-    max-width: 240px;
+    max-width: 220px;
     font-weight: 600;
 }
 
@@ -169,12 +169,10 @@
 
 .acoes-col {
     display: flex;
-    align-items: center;
     gap: .5rem;
-    white-space: nowrap;
+    align-items: center;
 }
 
-/* ── Botões de ação ──────────────────────────────────────────────────────── */
 .btn-editar {
     background: rgba(99, 102, 241, .15);
     color: var(--primary-color);
@@ -185,6 +183,7 @@
     font-weight: 600;
     text-decoration: none;
     transition: all .2s;
+    white-space: nowrap;
 }
 
 .btn-editar:hover {
@@ -196,12 +195,13 @@
     background: rgba(244, 63, 94, .15);
     color: var(--accent-color);
     border: 1px solid rgba(244, 63, 94, .3);
-    padding: .35rem .6rem;
+    padding: .35rem .8rem;
     border-radius: 6px;
     font-size: .82rem;
     font-weight: 600;
     cursor: pointer;
     transition: all .2s;
+    white-space: nowrap;
 }
 
 .btn-deletar:hover {
@@ -217,10 +217,21 @@
     margin-top: 1.5rem;
 }
 
+.form-row {
+    display: flex;
+    gap: 1.2rem;
+    flex-wrap: wrap;
+}
+
 .form-group {
     display: flex;
     flex-direction: column;
     gap: .5rem;
+    min-width: 160px;
+}
+
+.form-grow {
+    flex: 1;
 }
 
 .form-group label {
@@ -252,7 +263,28 @@
 
 .form-group textarea {
     resize: vertical;
-    min-height: 160px;
+    min-height: 120px;
+}
+
+/* Checkbox destaque */
+.form-check {
+    display: flex;
+    align-items: center;
+    gap: .7rem;
+}
+
+.form-check input[type="checkbox"] {
+    width: 1.1rem;
+    height: 1.1rem;
+    accent-color: var(--primary-color);
+    cursor: pointer;
+}
+
+.form-check label {
+    font-weight: 600;
+    font-size: .9rem;
+    cursor: pointer;
+    color: var(--text-color);
 }
 
 .form-actions {
@@ -288,6 +320,23 @@
 
 .btn-cancelar:hover {
     color: var(--text-color);
+}
+
+/* Preview de imagem */
+.img-preview {
+    margin-top: .5rem;
+}
+
+.preview-label {
+    font-size: .85rem;
+    color: var(--text-muted);
+    margin-bottom: .5rem;
+}
+
+.preview-img {
+    max-width: 160px;
+    border-radius: 8px;
+    border: 1px solid var(--border-color);
 }
 
 /* ── Alertas ─────────────────────────────────────────────────────────────── */

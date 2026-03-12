@@ -1,80 +1,92 @@
 -- views/noticias.lua
--- Listagem de notícias com busca e paginação
-
 local Widget = require("lapis.html").Widget
 
 return Widget:extend(function(self)
   div({ class = "shadow-card" }, function()
+
+    -- Cabeçalho + busca
     div({ class = "noticias-header" }, function()
       h2("📰 Notícias")
-
-      -- Barra de busca
-      form({ method = "GET", action = "/noticias", class = "search-form" }, function()
-        input({
-          type        = "text",
-          name        = "q",
-          value       = self.termo or "",
-          placeholder = "Buscar por título ou jogo...",
-          class       = "search-input",
-        })
-        button({ type = "submit", class = "search-btn" }, "🔍")
+      form({ method = "GET", action = "/noticias", class = "busca-form" }, function()
+        input({ type = "text", name = "q", value = self.termo or "",
+                placeholder = "Buscar...", class = "busca-input" })
+        button({ type = "submit", class = "busca-btn" }, "🔍")
       end)
     end)
 
-    -- Feedback da busca
-    if self.termo and self.termo ~= "" then
-      p({ class = "search-feedback" }, string.format(
-        "Resultados para \"%s\" — %d encontrado(s)",
-        self.termo, #(self.noticias or {})
-      ))
-      a({ href = "/noticias", class = "limpar-busca" }, "✕ Limpar busca")
+    -- Filtros de categoria
+    if self.categorias and #self.categorias > 0 then
+      div({ class = "categoria-filtros" }, function()
+        local ativa = self.categoria_ativa or self.categoria or ""
+        a({ href  = "/noticias",
+            class = "filtro-btn" .. (ativa == "" and " filtro-ativo" or "") },
+          "Todas")
+        for _, cat in ipairs(self.categorias) do
+          a({ href  = "/noticias?categoria=" .. cat.nome,
+              class = "filtro-btn" .. (ativa == cat.nome and " filtro-ativo" or "") },
+            cat.nome)
+        end
+      end)
     end
 
-    -- Grid de notícias
+    -- Resultado de busca
+    if self.modo_busca then
+      p({ class = "busca-resultado" }, string.format(
+        'Resultados para "%s" — %d encontrado(s)', self.termo or "", #self.noticias
+      ))
+      if #self.noticias == 0 then
+        div({ class = "busca-vazia" }, function()
+          p("Nenhuma notícia encontrada.")
+          a({ href = "/noticias", class = "btn-ver-mais" }, "← Ver todas")
+        end)
+      end
+    end
+
+    -- Grid de cards
     if self.noticias and #self.noticias > 0 then
       div({ class = "noticias-grid" }, function()
-        for _, noticia in ipairs(self.noticias) do
-          article({ class = "noticia-card" }, function()
+        for _, n in ipairs(self.noticias) do
+          article({ class = "noticia-card" .. (n.destaque == 1 and " card-destaque" or "") }, function()
             div({ class = "noticia-header" }, function()
-              if noticia.jogo and noticia.jogo ~= "" then
-                a({ href = "/jogos/" .. noticia.jogo, class = "tag" }, noticia.jogo)
+              a({ href = "/noticias?categoria=" .. n.categoria, class = "tag" }, n.categoria)
+              if n.jogo and n.jogo ~= "" then
+                a({ href = "/jogos/" .. n.jogo, class = "tag tag-jogo" }, n.jogo)
               end
-              span({ class = "data-noticia" }, noticia.criado_em:sub(1, 10))
+              if n.destaque == 1 then
+                span({ class = "badge-destaque" }, "⭐ Destaque")
+              end
+              span({ class = "data-noticia" }, n.criado_em:sub(1, 10))
             end)
             h3(function()
-              a({ href = "/noticias/" .. noticia.id }, noticia.titulo)
+              a({ href = "/noticias/" .. n.id }, n.titulo)
             end)
-            p({ class = "noticia-resumo" }, noticia.conteudo:sub(1, 120) .. "...")
-            a({ href = "/noticias/" .. noticia.id, class = "btn-ler-mais" }, "Ler mais →")
+            p({ class = "noticia-resumo" }, n.conteudo:sub(1, 120) .. "...")
+            a({ href = "/noticias/" .. n.id, class = "btn-ler-mais" }, "Ler mais →")
           end)
         end
       end)
-    else
-      p({ class = "sem-dados" }, "Nenhuma notícia encontrada.")
     end
 
-    -- Paginação (só aparece no modo normal, sem busca)
-    if self.paginacao and self.paginacao.paginas > 1 then
-      local p_atual = self.paginacao.pagina_atual
-      local p_total = self.paginacao.paginas
-
+    -- Paginação
+    if not self.modo_busca and self.total_paginas and self.total_paginas > 1 then
+      local cat_param = (self.categoria_ativa and self.categoria_ativa ~= "")
+                        and ("&categoria=" .. self.categoria_ativa) or ""
       div({ class = "paginacao" }, function()
-        -- Anterior
-        if p_atual > 1 then
-          a({ href = "/noticias?p=" .. (p_atual - 1), class = "pag-btn" }, "← Anterior")
+        if self.pagina > 1 then
+          a({ href = "/noticias?pagina=" .. (self.pagina - 1) .. cat_param, class = "pag-btn" }, "← Anterior")
         end
-
-        -- Números de página
-        for i = 1, p_total do
-          local classe = i == p_atual and "pag-btn pag-ativo" or "pag-btn"
-          a({ href = "/noticias?p=" .. i, class = classe }, tostring(i))
+        for i = 1, self.total_paginas do
+          if i == self.pagina then
+            span({ class = "pag-btn pag-atual" }, tostring(i))
+          else
+            a({ href = "/noticias?pagina=" .. i .. cat_param, class = "pag-btn" }, tostring(i))
+          end
         end
-
-        -- Próxima
-        if p_atual < p_total then
-          a({ href = "/noticias?p=" .. (p_atual + 1), class = "pag-btn" }, "Próxima →")
+        if self.pagina < self.total_paginas then
+          a({ href = "/noticias?pagina=" .. (self.pagina + 1) .. cat_param, class = "pag-btn" }, "Próxima →")
         end
       end)
     end
+
   end)
 end)
