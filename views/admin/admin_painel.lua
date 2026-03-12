@@ -1,9 +1,7 @@
--- Painel principal: lista notícias e jogos com opção de deletar
-
+-- views/admin/admin_painel.lua
 local Widget = require("lapis.html").Widget
 
 return Widget:extend(function(self)
-  -- Cards de resumo
   div({ class = "admin-stats" }, function()
     div({ class = "stat-card" }, function()
       span({ class = "stat-numero" }, tostring(#(self.noticias or {})))
@@ -15,7 +13,6 @@ return Widget:extend(function(self)
     end)
   end)
 
-  -- Tabela de notícias
   div({ class = "admin-section shadow-card" }, function()
     div({ class = "section-header" }, function()
       h2("📰 Notícias")
@@ -40,12 +37,15 @@ return Widget:extend(function(self)
               td({ class = "titulo-col" }, n.titulo)
               td(function() span({ class = "tag" }, n.jogo) end)
               td({ class = "data-col" }, n.criado_em:sub(1, 10))
-              td(function()
-                -- Botão deletar via formulário POST
+              td({ class = "acoes-col" }, function()
+                -- Botão editar
+                a({ href = "/admin/noticias/" .. n.id .. "/editar", class = "btn-editar" }, "✏️ Editar")
+                -- Botão deletar
                 form({ method = "POST",
                        action = "/admin/noticias/" .. n.id .. "/deletar",
+                       style = "display:inline",
                        onsubmit = "return confirm('Deletar esta notícia?')" }, function()
-                  button({ type = "submit", class = "btn-deletar" }, "🗑 Deletar")
+                  button({ type = "submit", class = "btn-deletar" }, "🗑")
                 end)
               end)
             end)

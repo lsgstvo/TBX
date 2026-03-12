@@ -1,3 +1,4 @@
+-- views/layout.lua
 local Widget = require("lapis.html").Widget
 
 return Widget:extend(function(self)
@@ -15,6 +16,7 @@ return Widget:extend(function(self)
           h1("🎮 Portal Gamer")
           nav(function()
             a({ href = "/" }, "Início")
+            a({ href = "/noticias" }, "Notícias")
             a({ href = "/ranking" }, "Ranking")
             a({ href = "/admin" }, "Admin")
           end)

@@ -1,5 +1,5 @@
+-- db.lua
 -- Módulo central de acesso ao banco de dados SQLite
--- Usa lapis.db (baseado em sqlite3 via luasql ou lapis built-in)
 
 local sqlite3 = require("lsqlite3")
 
@@ -8,13 +8,9 @@ local db_conn = nil
 
 local M = {}
 
--- Abre (ou cria) o banco e garante que as tabelas existem
 function M.connect()
   if db_conn then return db_conn end
-
   db_conn = sqlite3.open(DB_PATH)
-
-  -- Tabela de notícias
   db_conn:exec([[
     CREATE TABLE IF NOT EXISTS noticias (
       id        INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -24,8 +20,6 @@ function M.connect()
       criado_em TEXT    NOT NULL DEFAULT (datetime('now'))
     );
   ]])
-
-  -- Tabela de jogos (ranking)
   db_conn:exec([[
     CREATE TABLE IF NOT EXISTS jogos (
       id        INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -35,11 +29,9 @@ function M.connect()
       posicao   INTEGER NOT NULL DEFAULT 0
     );
   ]])
-
   return db_conn
 end
 
--- Fecha a conexão (chamar no shutdown se necessário)
 function M.close()
   if db_conn then
     db_conn:close()
@@ -47,9 +39,8 @@ function M.close()
   end
 end
 
--- ─── Helpers internos ────────────────────────────────────────────────────────
+-- ─── Helpers ─────────────────────────────────────────────────────────────────
 
--- Executa uma query e retorna lista de rows como tabelas Lua
 local function query(sql)
   local conn = M.connect()
   local rows = {}
@@ -59,19 +50,53 @@ local function query(sql)
   return rows
 end
 
--- Executa uma query com parâmetros (prepared statement simples via escape)
 local function escape(val)
   if val == nil then return "NULL" end
   if type(val) == "number" then return tostring(val) end
-  -- Escapa aspas simples duplicando-as (padrão SQL)
   return "'" .. tostring(val):gsub("'", "''") .. "'"
 end
 
 -- ─── Notícias ────────────────────────────────────────────────────────────────
 
--- Retorna todas as notícias, da mais recente para a mais antiga
+-- Retorna todas as notícias sem paginação (usado na home e API)
 function M.get_noticias()
   return query("SELECT * FROM noticias ORDER BY criado_em DESC")
+end
+
+-- Retorna notícias paginadas
+-- Retorna tabela: { rows, total, paginas, pagina_atual }
+function M.get_noticias_paginadas(pagina, por_pagina)
+  pagina     = tonumber(pagina)     or 1
+  por_pagina = tonumber(por_pagina) or 6
+
+  local offset     = (pagina - 1) * por_pagina
+  local total_rows = query("SELECT COUNT(*) as total FROM noticias")
+  local total      = total_rows[1] and total_rows[1].total or 0
+  local paginas    = math.max(1, math.ceil(total / por_pagina))
+
+  local rows = query(string.format(
+    "SELECT * FROM noticias ORDER BY criado_em DESC LIMIT %d OFFSET %d",
+    por_pagina, offset
+  ))
+
+  return { rows = rows, total = total, paginas = paginas, pagina_atual = pagina }
+end
+
+-- Busca notícias por termo no título ou nome do jogo
+function M.buscar_noticias(termo)
+  local t = escape("%" .. (termo or "") .. "%")
+  return query(string.format(
+    "SELECT * FROM noticias WHERE titulo LIKE %s OR jogo LIKE %s ORDER BY criado_em DESC",
+    t, t
+  ))
+end
+
+-- Retorna notícias de um jogo específico
+function M.get_noticias_por_jogo(nome_jogo)
+  return query(string.format(
+    "SELECT * FROM noticias WHERE jogo = %s ORDER BY criado_em DESC",
+    escape(nome_jogo)
+  ))
 end
 
 -- Retorna uma notícia pelo ID
@@ -83,12 +108,20 @@ end
 -- Insere uma nova notícia
 function M.criar_noticia(titulo, conteudo, jogo)
   local conn = M.connect()
-  local sql = string.format(
+  conn:exec(string.format(
     "INSERT INTO noticias (titulo, conteudo, jogo) VALUES (%s, %s, %s)",
     escape(titulo), escape(conteudo), escape(jogo or "")
-  )
-  conn:exec(sql)
+  ))
   return conn:last_insert_rowid()
+end
+
+-- Atualiza uma notícia existente
+function M.editar_noticia(id, titulo, conteudo, jogo)
+  local conn = M.connect()
+  conn:exec(string.format(
+    "UPDATE noticias SET titulo = %s, conteudo = %s, jogo = %s WHERE id = %d",
+    escape(titulo), escape(conteudo), escape(jogo or ""), tonumber(id)
+  ))
 end
 
 -- Remove uma notícia pelo ID
@@ -99,29 +132,32 @@ end
 
 -- ─── Jogos / Ranking ─────────────────────────────────────────────────────────
 
--- Retorna todos os jogos ordenados pela posição no ranking
 function M.get_jogos()
   return query("SELECT * FROM jogos ORDER BY posicao ASC")
 end
 
--- Retorna um jogo pelo ID
 function M.get_jogo(id)
   local rows = query("SELECT * FROM jogos WHERE id = " .. tonumber(id))
   return rows[1]
 end
 
--- Insere um novo jogo no ranking
+-- Busca jogo pelo nome exato
+function M.get_jogo_por_nome(nome)
+  local rows = query(string.format(
+    "SELECT * FROM jogos WHERE nome = %s LIMIT 1", escape(nome)
+  ))
+  return rows[1]
+end
+
 function M.criar_jogo(nome, genero, players, posicao)
   local conn = M.connect()
-  local sql = string.format(
+  conn:exec(string.format(
     "INSERT INTO jogos (nome, genero, players, posicao) VALUES (%s, %s, %s, %s)",
     escape(nome), escape(genero or ""), escape(players), escape(tonumber(posicao) or 0)
-  )
-  conn:exec(sql)
+  ))
   return conn:last_insert_rowid()
 end
 
--- Atualiza a posição de um jogo
 function M.atualizar_posicao(id, nova_posicao)
   local conn = M.connect()
   conn:exec(string.format(
@@ -130,7 +166,6 @@ function M.atualizar_posicao(id, nova_posicao)
   ))
 end
 
--- Remove um jogo pelo ID
 function M.deletar_jogo(id)
   local conn = M.connect()
   conn:exec("DELETE FROM jogos WHERE id = " .. tonumber(id))

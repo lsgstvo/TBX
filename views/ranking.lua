@@ -1,5 +1,4 @@
--- Tabela de ranking de jogos — dados vindos do banco SQLite
-
+-- views/ranking.lua
 local Widget = require("lapis.html").Widget
 
 return Widget:extend(function(self)
@@ -20,7 +19,10 @@ return Widget:extend(function(self)
           for _, jogo in ipairs(self.jogos) do
             tr(function()
               td({ class = "posicao" }, tostring(jogo.posicao))
-              td({ class = "nome-jogo" }, jogo.nome)
+              td({ class = "nome-jogo" }, function()
+                -- Link para a página de detalhe do jogo
+                a({ href = "/jogos/" .. jogo.nome }, jogo.nome)
+              end)
               td({ class = "genero" }, jogo.genero)
               td(jogo.players)
             end)

@@ -27,7 +27,7 @@ body {
   flex-direction: column;
 }
 
-/* ── Layout ─────────────────────────────────────────────────────────────── */
+/* ── Layout ──────────────────────────────────────────────────────────────── */
 .container {
   max-width: 1000px;
   margin: 0 auto;
@@ -35,12 +35,11 @@ body {
   width: 100%;
 }
 
-/* ── Header ─────────────────────────────────────────────────────────────── */
+/* ── Header ──────────────────────────────────────────────────────────────── */
 .site-header {
   background-color: var(--surface-color);
   border-bottom: 1px solid var(--border-color);
   padding: 1.2rem 0;
-  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, .1);
   position: sticky;
   top: 0;
   z-index: 10;
@@ -57,7 +56,6 @@ body {
   font-weight: 800;
   color: var(--primary-color);
   letter-spacing: -0.5px;
-  text-shadow: 0 0 10px rgba(99, 102, 241, .2);
 }
 
 .site-header nav a {
@@ -67,7 +65,7 @@ body {
   margin-left: 1.5rem;
   padding: 0.5rem 0.8rem;
   border-radius: 6px;
-  transition: all .2s ease;
+  transition: all .2s;
 }
 
 .site-header nav a:hover {
@@ -88,7 +86,7 @@ body {
   padding: 2rem;
   border-radius: 12px;
   box-shadow: 0 10px 15px -3px rgba(0, 0, 0, .1);
-  transition: transform .2s ease, box-shadow .2s ease;
+  transition: transform .2s, box-shadow .2s;
 }
 
 .shadow-card:hover {
@@ -125,17 +123,22 @@ h3 {
   gap: .5rem;
 }
 
-/* ── Tag (badge de jogo) ─────────────────────────────────────────────────── */
+/* ── Tag ─────────────────────────────────────────────────────────────────── */
 .tag {
   display: inline-block;
   background: rgba(99, 102, 241, .2);
   color: var(--primary-color);
-  font-size: 0.75rem;
+  font-size: .75rem;
   font-weight: 600;
-  padding: 0.2rem 0.6rem;
+  padding: .2rem .6rem;
   border-radius: 99px;
   border: 1px solid rgba(99, 102, 241, .3);
-  letter-spacing: .03em;
+  text-decoration: none;
+  transition: background .2s;
+}
+
+a.tag:hover {
+  background: rgba(99, 102, 241, .4);
 }
 
 /* ── Lista de notícias (home) ────────────────────────────────────────────── */
@@ -205,7 +208,75 @@ h3 {
   color: white;
 }
 
-/* ── Grid de notícias (/noticias) ────────────────────────────────────────── */
+/* ── Header da listagem de notícias ──────────────────────────────────────── */
+.noticias-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+
+.noticias-header h2 {
+  margin-bottom: 0;
+}
+
+/* ── Busca ───────────────────────────────────────────────────────────────── */
+.search-form {
+  display: flex;
+  gap: .5rem;
+}
+
+.search-input {
+  background: var(--bg-color);
+  border: 1px solid var(--border-color);
+  color: var(--text-color);
+  padding: .5rem 1rem;
+  border-radius: 8px;
+  font-size: .9rem;
+  font-family: inherit;
+  outline: none;
+  width: 240px;
+  transition: border-color .2s;
+}
+
+.search-input:focus {
+  border-color: var(--primary-color);
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, .15);
+}
+
+.search-btn {
+  background: var(--primary-color);
+  color: white;
+  border: none;
+  padding: .5rem .9rem;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: .95rem;
+  transition: background .2s;
+}
+
+.search-btn:hover {
+  background: var(--primary-hover);
+}
+
+.search-feedback {
+  color: var(--text-muted);
+  font-size: .9rem;
+  margin-bottom: .5rem;
+}
+
+.limpar-busca {
+  color: var(--accent-color);
+  text-decoration: none;
+  font-size: .85rem;
+  font-weight: 600;
+  display: inline-block;
+  margin-bottom: 1.5rem;
+}
+
+/* ── Grid de notícias ────────────────────────────────────────────────────── */
 .noticias-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
@@ -267,11 +338,42 @@ h3 {
   text-decoration: none;
   font-weight: 600;
   font-size: .85rem;
-  transition: color .2s;
 }
 
 .btn-ler-mais:hover {
   color: var(--primary-hover);
+}
+
+/* ── Paginação ───────────────────────────────────────────────────────────── */
+.paginacao {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: .5rem;
+  margin-top: 2rem;
+  flex-wrap: wrap;
+}
+
+.pag-btn {
+  color: var(--text-muted);
+  text-decoration: none;
+  font-weight: 600;
+  font-size: .9rem;
+  padding: .45rem .85rem;
+  border-radius: 8px;
+  border: 1px solid var(--border-color);
+  transition: all .2s;
+}
+
+.pag-btn:hover {
+  border-color: var(--primary-color);
+  color: var(--primary-color);
+}
+
+.pag-ativo {
+  background: var(--primary-color);
+  color: white !important;
+  border-color: var(--primary-color) !important;
 }
 
 /* ── Detalhe de notícia ──────────────────────────────────────────────────── */
@@ -301,6 +403,53 @@ h3 {
 }
 
 .btn-voltar:hover {
+  color: var(--text-color);
+}
+
+/* ── Página de detalhe do jogo ───────────────────────────────────────────── */
+.jogo-hero h2 {
+  font-size: 2rem;
+  font-weight: 800;
+  margin: .8rem 0 1.5rem;
+}
+
+.jogo-badge {
+  display: flex;
+  align-items: center;
+  gap: .8rem;
+  margin-bottom: .5rem;
+}
+
+.jogo-posicao {
+  font-size: 1rem;
+  font-weight: 800;
+  color: var(--text-muted);
+}
+
+.jogo-stats {
+  display: flex;
+  gap: 2rem;
+  flex-wrap: wrap;
+  margin-top: .5rem;
+}
+
+.jogo-stat {
+  display: flex;
+  flex-direction: column;
+  gap: .2rem;
+}
+
+.stat-label {
+  font-size: .78rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: .05em;
+  font-weight: 600;
+}
+
+.stat-valor {
+  font-size: 1rem;
+  font-weight: 700;
   color: var(--text-color);
 }
 
@@ -336,9 +485,14 @@ h3 {
   width: 3rem;
 }
 
-.ranking-table .nome-jogo {
+.ranking-table .nome-jogo a {
   font-weight: 600;
   color: var(--primary-color);
+  text-decoration: none;
+}
+
+.ranking-table .nome-jogo a:hover {
+  text-decoration: underline;
 }
 
 .ranking-table .genero {
