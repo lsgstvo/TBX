@@ -2,6 +2,7 @@
 
 .admin-body {
     display: flex;
+    flex-direction: row;
     min-height: 100vh;
     background-color: var(--bg-color);
 }
@@ -63,6 +64,9 @@
     flex: 1;
     padding: 2.5rem;
     max-width: 960px;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
 }
 
 /* ── Stats ───────────────────────────────────────────────────────────────── */
