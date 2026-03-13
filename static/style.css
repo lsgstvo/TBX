@@ -101,12 +101,12 @@ body {
 }
 
 .rss-link {
-  color: var(--gold-color) !important;
+  color: var(--accent-color) !important;
 }
 
 .rss-link:hover {
-  background-color: rgba(245, 158, 11, .15) !important;
-  color: var(--gold-color) !important;
+  background-color: var(--accent-color) !important;
+  color: white !important;
 }
 
 /* Toggle tema */
@@ -974,4 +974,240 @@ a.tag-jogo:hover {
 
 .footer-links a:hover {
   color: var(--primary-color);
+}
+
+/* ── Layout detalhe: 2 colunas ───────────────────────────────────────────── */
+.detalhe-layout {
+  display: grid;
+  grid-template-columns: 1fr 300px;
+  gap: 2rem;
+  align-items: start;
+}
+
+.detalhe-main {
+  min-width: 0;
+}
+
+.detalhe-sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+/* Grid 2 colunas para relacionadas */
+.grid-2col {
+  grid-template-columns: repeat(2, 1fr) !important;
+}
+
+/* ── Sidebar widgets ─────────────────────────────────────────────────────── */
+.sidebar-widget {
+  padding: 1.4rem !important;
+}
+
+.sidebar-widget h3 {
+  font-size: 1rem;
+  margin-bottom: .8rem;
+}
+
+.sidebar-jogos {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: .6rem;
+}
+
+.sidebar-jogos li {
+  display: flex;
+  align-items: center;
+  gap: .7rem;
+  padding: .5rem;
+  border-radius: 6px;
+  transition: background .2s;
+}
+
+.sidebar-jogos li:hover {
+  background: rgba(99, 102, 241, .08);
+}
+
+.sj-pos {
+  font-weight: 800;
+  color: var(--primary-color);
+  font-size: .85rem;
+  min-width: 1.5rem;
+}
+
+.sj-info {
+  display: flex;
+  flex-direction: column;
+}
+
+.sj-nome {
+  font-weight: 600;
+  font-size: .88rem;
+  color: var(--text-color);
+  text-decoration: none;
+}
+
+.sj-nome:hover {
+  color: var(--primary-color);
+}
+
+.sj-genero {
+  font-size: .75rem;
+  color: var(--text-muted);
+}
+
+.sidebar-noticias {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: .5rem;
+}
+
+.sidebar-noticias li {
+  border-bottom: 1px solid var(--border-color);
+  padding-bottom: .5rem;
+}
+
+.sidebar-noticias li:last-child {
+  border-bottom: none;
+}
+
+.sidebar-noticias li a {
+  color: var(--text-color);
+  text-decoration: none;
+  font-size: .88rem;
+  display: flex;
+  flex-direction: column;
+  gap: .2rem;
+  transition: color .2s;
+}
+
+.sidebar-noticias li a:hover {
+  color: var(--primary-color);
+}
+
+.sn-titulo {
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.sn-views {
+  font-size: .75rem;
+  color: var(--text-muted);
+}
+
+.sidebar-ver-mais {
+  display: block;
+  margin-top: .8rem;
+  font-size: .82rem;
+  font-weight: 600;
+  color: var(--primary-color);
+  text-decoration: none;
+  transition: color .2s;
+}
+
+.sidebar-ver-mais:hover {
+  color: var(--primary-hover);
+}
+
+/* ── Admin: form + preview layout ───────────────────────────────────────── */
+.form-preview-layout {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2rem;
+  align-items: start;
+}
+
+.form-col {
+  min-width: 0;
+}
+
+.preview-col {
+  min-width: 0;
+  position: sticky;
+  top: 80px;
+}
+
+.preview-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: .7rem;
+}
+
+.preview-label {
+  font-weight: 700;
+  font-size: .9rem;
+  color: var(--text-muted);
+}
+
+.preview-hint {
+  font-size: .78rem;
+  color: var(--text-muted);
+  opacity: .6;
+}
+
+.preview-box {
+  background: var(--bg-color);
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  padding: 1.4rem;
+  min-height: 200px;
+  overflow-y: auto;
+  max-height: 600px;
+}
+
+.preview-empty {
+  color: var(--text-muted);
+  font-size: .9rem;
+  text-align: center;
+  padding: 2rem 0;
+}
+
+.preview-article h2 {
+  font-size: 1.3rem;
+}
+
+.preview-article .noticia-corpo p {
+  font-size: .92rem;
+  line-height: 1.7;
+}
+
+/* ── Admin: stat-badge ───────────────────────────────────────────────────── */
+.stat-badge {
+  background: rgba(99, 102, 241, .15);
+  color: var(--primary-color);
+  font-size: .8rem;
+  font-weight: 600;
+  padding: .2rem .7rem;
+  border-radius: 99px;
+  border: 1px solid rgba(99, 102, 241, .25);
+}
+
+.paginacao-sm {
+  margin-top: 1rem;
+}
+
+/* ── Responsivo ──────────────────────────────────────────────────────────── */
+@media (max-width: 768px) {
+  .detalhe-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .detalhe-sidebar {
+    display: none;
+  }
+
+  .form-preview-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .preview-col {
+    position: static;
+  }
+
+  .grid-2col {
+    grid-template-columns: 1fr !important;
+  }
 }

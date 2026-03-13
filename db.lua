@@ -275,4 +275,65 @@ function M.deletar_jogo(id)
   conn:exec("DELETE FROM jogos WHERE id = " .. tonumber(id))
 end
 
+-- ─── Notícias relacionadas ────────────────────────────────────────────────────
+-- Busca até `limite` notícias do mesmo jogo ou categoria, excluindo a atual
+
+function M.get_noticias_relacionadas(noticia_id, jogo, categoria, limite)
+  local conn  = M.connect()
+  limite      = tonumber(limite) or 4
+  noticia_id  = tonumber(noticia_id)
+  local rows  = {}
+
+  -- 1ª prioridade: mesmo jogo
+  if jogo and jogo ~= "" then
+    local sql = string.format(
+      "SELECT * FROM noticias WHERE jogo = %s AND id != %d ORDER BY criado_em DESC LIMIT %d",
+      escape(jogo), noticia_id, limite
+    )
+    for row in conn:nrows(sql) do table.insert(rows, row) end
+  end
+
+  -- 2ª prioridade: mesma categoria (completa até o limite)
+  if #rows < limite and categoria and categoria ~= "" then
+    local ja = {}
+    for _, r in ipairs(rows) do ja[r.id] = true end
+    local faltam = limite - #rows
+    local sql = string.format(
+      "SELECT * FROM noticias WHERE categoria = %s AND id != %d ORDER BY criado_em DESC LIMIT %d",
+      escape(categoria), noticia_id, faltam * 2  -- busca mais para filtrar duplicatas
+    )
+    for row in conn:nrows(sql) do
+      if not ja[row.id] then
+        table.insert(rows, row)
+        if #rows >= limite then break end
+      end
+    end
+  end
+
+  return rows
+end
+
+-- ─── Comentários paginados (para o admin) ─────────────────────────────────────
+
+function M.get_comentarios_paginado(pagina, por_pagina)
+  pagina     = tonumber(pagina)     or 1
+  por_pagina = tonumber(por_pagina) or 10
+  local total  = query("SELECT COUNT(*) as total FROM comentarios")[1].total
+  local offset = (pagina - 1) * por_pagina
+  local rows   = query(string.format([[
+    SELECT c.*, n.titulo as noticia_titulo
+    FROM comentarios c
+    JOIN noticias n ON c.noticia_id = n.id
+    ORDER BY c.criado_em DESC
+    LIMIT %d OFFSET %d
+  ]], por_pagina, offset))
+  return {
+    rows          = rows,
+    total         = total,
+    pagina        = pagina,
+    por_pagina    = por_pagina,
+    total_paginas = math.ceil(total / por_pagina),
+  }
+end
+
 return M

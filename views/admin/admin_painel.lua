@@ -24,7 +24,7 @@ return Widget:extend(function(self)
       span({ class = "stat-label" }, "Destaques")
     end)
     div({ class = "stat-card" }, function()
-      span({ class = "stat-numero" }, tostring(#(self.comentarios or {})))
+      span({ class = "stat-numero" }, tostring(self.coment_total or 0))
       span({ class = "stat-label" }, "Comentários")
     end)
     div({ class = "stat-card" }, function()
@@ -105,25 +105,36 @@ return Widget:extend(function(self)
     end
   end)
 
-  -- ── Comentários ───────────────────────────────────────────────────────────
+  -- ── Comentários (com paginação) ───────────────────────────────────────────
   div({ id = "comentarios", class = "admin-section shadow-card" }, function()
-    h2("💬 Comentários Recentes")
+    div({ class = "section-header" }, function()
+      h2("💬 Comentários")
+      if self.coment_total and self.coment_total > 0 then
+        span({ class = "stat-badge" }, tostring(self.coment_total) .. " no total")
+      end
+    end)
+
     if self.comentarios and #self.comentarios > 0 then
       element("table", { class = "admin-table" }, function()
         thead(function()
-          tr(function() th("Autor"); th("Notícia"); th("Comentário"); th("Data"); th("Ação") end)
+          tr(function()
+            th("Autor"); th("Notícia"); th("Comentário"); th("Data"); th("Ação")
+          end)
         end)
         tbody(function()
           for _, c in ipairs(self.comentarios) do
             tr(function()
               td({ class = "autor-col" }, c.autor)
               td({ class = "titulo-col" }, function()
-                a({ href = "/noticias/" .. c.noticia_id }, c.noticia_titulo:sub(1, 40) .. "...")
+                a({ href = "/noticias/" .. c.noticia_id },
+                  (c.noticia_titulo or ""):sub(1, 35) .. "...")
               end)
-              td({ class = "coment-col" }, c.conteudo:sub(1, 80) .. (c.conteudo:len() > 80 and "..." or ""))
+              td({ class = "coment-col" },
+                c.conteudo:sub(1, 80) .. (c.conteudo:len() > 80 and "..." or ""))
               td({ class = "data-col" }, c.criado_em:sub(1, 10))
               td(function()
-                form({ method = "POST", action = "/admin/comentarios/" .. c.id .. "/deletar",
+                form({ method = "POST",
+                       action  = "/admin/comentarios/" .. c.id .. "/deletar",
                        onsubmit = "return confirm('Deletar comentário?')" }, function()
                   button({ type = "submit", class = "btn-deletar" }, "🗑")
                 end)
@@ -132,6 +143,28 @@ return Widget:extend(function(self)
           end
         end)
       end)
+
+      -- Paginação de comentários
+      if self.coment_total_pag and self.coment_total_pag > 1 then
+        div({ class = "paginacao paginacao-sm" }, function()
+          if self.coment_pagina > 1 then
+            a({ href  = "/admin?pagina_coment=" .. (self.coment_pagina - 1) .. "#comentarios",
+                class = "pag-btn" }, "← Anterior")
+          end
+          for i = 1, self.coment_total_pag do
+            if i == self.coment_pagina then
+              span({ class = "pag-btn pag-atual" }, tostring(i))
+            else
+              a({ href  = "/admin?pagina_coment=" .. i .. "#comentarios",
+                  class = "pag-btn" }, tostring(i))
+            end
+          end
+          if self.coment_pagina < self.coment_total_pag then
+            a({ href  = "/admin?pagina_coment=" .. (self.coment_pagina + 1) .. "#comentarios",
+                class = "pag-btn" }, "Próxima →")
+          end
+        end)
+      end
     else
       p({ class = "sem-dados" }, "Nenhum comentário ainda.")
     end

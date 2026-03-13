@@ -79,11 +79,14 @@ end)
 app:get("/noticias/:id", function(self)
   local noticia = db.get_noticia(self.params.id)
   if not noticia then return { status = 404, render = "erro" } end
-  -- Incrementa visualizações
   db.incrementar_views(self.params.id)
-  self.noticia     = noticia
-  self.comentarios = db.get_comentarios(self.params.id)
-  self.erro_coment = self.session.coment_erro
+  self.noticia         = noticia
+  self.comentarios     = db.get_comentarios(self.params.id)
+  self.relacionadas    = db.get_noticias_relacionadas(
+                           noticia.id, noticia.jogo, noticia.categoria, 4)
+  self.jogos_populares = db.get_jogos()          -- já vem ordenado por posicao
+  self.mais_vistas     = db.get_mais_vistas(6)   -- top 6 para filtrar a atual na view
+  self.erro_coment     = self.session.coment_erro
   self.session.coment_erro = nil
   return { render = "noticia_detalhe" }
 end)
@@ -142,6 +145,63 @@ app:get("/rss", function(self)
     s = s:gsub("'",  "&apos;")
     return s
   end
+
+-- ─── Sitemap.xml ─────────────────────────────────────────────────────────────
+
+app:get("/sitemap.xml", function(self)
+  local noticias = db.get_noticias()
+  local jogos    = db.get_jogos()
+  local base     = "http://localhost:8080"
+
+  -- Páginas estáticas
+  local urls_estaticas = {
+    { loc = base .. "/",         changefreq = "daily",   priority = "1.0" },
+    { loc = base .. "/noticias", changefreq = "daily",   priority = "0.9" },
+    { loc = base .. "/ranking",  changefreq = "weekly",  priority = "0.8" },
+    { loc = base .. "/sobre",    changefreq = "monthly", priority = "0.5" },
+  }
+
+  local linhas = {
+    '<?xml version="1.0" encoding="UTF-8"?>',
+    '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">',
+  }
+
+  -- Páginas estáticas
+  for _, u in ipairs(urls_estaticas) do
+    table.insert(linhas, "  <url>")
+    table.insert(linhas, "    <loc>"        .. u.loc        .. "</loc>")
+    table.insert(linhas, "    <changefreq>" .. u.changefreq .. "</changefreq>")
+    table.insert(linhas, "    <priority>"   .. u.priority   .. "</priority>")
+    table.insert(linhas, "  </url>")
+  end
+
+  -- Notícias individuais
+  for _, n in ipairs(noticias) do
+    table.insert(linhas, "  <url>")
+    table.insert(linhas, "    <loc>"        .. base .. "/noticias/" .. n.id .. "</loc>")
+    table.insert(linhas, "    <lastmod>"    .. n.criado_em:sub(1, 10)        .. "</lastmod>")
+    table.insert(linhas, "    <changefreq>monthly</changefreq>")
+    table.insert(linhas, "    <priority>0.7</priority>")
+    table.insert(linhas, "  </url>")
+  end
+
+  -- Páginas de jogos
+  for _, j in ipairs(jogos) do
+    -- Encode simples: troca espaços por %20
+    local nome_enc = j.nome:gsub(" ", "%%20")
+    table.insert(linhas, "  <url>")
+    table.insert(linhas, "    <loc>"        .. base .. "/jogos/" .. nome_enc .. "</loc>")
+    table.insert(linhas, "    <changefreq>weekly</changefreq>")
+    table.insert(linhas, "    <priority>0.6</priority>")
+    table.insert(linhas, "  </url>")
+  end
+
+  table.insert(linhas, "</urlset>")
+
+  local xml = table.concat(linhas, "\n")
+  ngx.header["Content-Type"] = "application/xml; charset=UTF-8"
+  return { layout = false, xml }
+end)
 
   -- Lua 5.1 não tem utf8 nativo, um sub corta bytes no meio.
   -- Solução segura: manter as primeiras X palavras ou cortar por espaço
@@ -227,11 +287,17 @@ end)
 
 app:get("/admin", function(self)
   if not auth.require_login(self) then return end
-  self.noticias    = db.get_noticias()
-  self.jogos       = db.get_jogos()
-  self.comentarios = db.get_todos_comentarios()
+  self.noticias = db.get_noticias()
+  self.jogos    = db.get_jogos()
+  local pag_coment          = tonumber(self.params.pagina_coment) or 1
+  local res_coment          = db.get_comentarios_paginado(pag_coment, 10)
+  self.comentarios          = res_coment.rows
+  self.coment_pagina        = res_coment.pagina
+  self.coment_total_pag     = res_coment.total_paginas
+  self.coment_total         = res_coment.total
   return { render = "admin.admin_painel", layout = "admin.admin_layout" }
 end)
+
 
 -- ─── Admin: Notícias ─────────────────────────────────────────────────────────
 
