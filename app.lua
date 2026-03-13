@@ -129,36 +129,50 @@ end)
 
 app:get("/rss", function(self)
   local noticias = db.get_noticias()
-  -- Limita a 20 itens no feed
   local items = {}
   for i = 1, math.min(20, #noticias) do table.insert(items, noticias[i]) end
-
-  local xml = '<?xml version="1.0" encoding="UTF-8"?>\n'
-  xml = xml .. '<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">\n'
-  xml = xml .. '  <channel>\n'
-  xml = xml .. '    <title>Portal Gamer</title>\n'
-  xml = xml .. '    <link>http://localhost:8080</link>\n'
-  xml = xml .. '    <description>As últimas notícias do mundo dos games</description>\n'
-  xml = xml .. '    <language>pt-BR</language>\n'
-  xml = xml .. '    <atom:link href="http://localhost:8080/rss" rel="self" type="application/rss+xml"/>\n'
-
-  for _, n in ipairs(items) do
-    -- Escapa caracteres especiais XML
-    local titulo   = n.titulo:gsub("&", "&amp;"):gsub("<", "&lt;"):gsub(">", "&gt;")
-    local conteudo = n.conteudo:gsub("&", "&amp;"):gsub("<", "&lt;"):gsub(">", "&gt;")
-    xml = xml .. '    <item>\n'
-    xml = xml .. '      <title>' .. titulo .. '</title>\n'
-    xml = xml .. '      <link>http://localhost:8080/noticias/' .. n.id .. '</link>\n'
-    xml = xml .. '      <guid>http://localhost:8080/noticias/' .. n.id .. '</guid>\n'
-    xml = xml .. '      <pubDate>' .. n.criado_em .. '</pubDate>\n'
-    xml = xml .. '      <category>' .. n.categoria .. '</category>\n'
-    xml = xml .. '      <description>' .. conteudo:sub(1, 300) .. '...</description>\n'
-    xml = xml .. '    </item>\n'
+ 
+  -- Escapa caracteres especiais XML
+  local function xml_escape(s)
+    s = tostring(s or "")
+    s = s:gsub("&",  "&amp;")
+    s = s:gsub("<",  "&lt;")
+    s = s:gsub(">",  "&gt;")
+    s = s:gsub('"',  "&quot;")
+    s = s:gsub("'",  "&apos;")
+    return s
   end
-
-  xml = xml .. '  </channel>\n</rss>'
-
-  return { content_type = "application/rss+xml", layout = false, xml }
+ 
+  local linhas = {
+    '<?xml version="1.0" encoding="UTF-8"?>',
+    '<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">',
+    '  <channel>',
+    '    <title>Portal Gamer</title>',
+    '    <link>http://localhost:8080</link>',
+    '    <description>As últimas notícias do mundo dos games</description>',
+    '    <language>pt-BR</language>',
+    '    <atom:link href="http://localhost:8080/rss" rel="self" type="application/rss+xml"/>',
+  }
+ 
+  for _, n in ipairs(items) do
+    table.insert(linhas, '    <item>')
+    table.insert(linhas, '      <title>'       .. xml_escape(n.titulo)                   .. '</title>')
+    table.insert(linhas, '      <link>'         .. 'http://localhost:8080/noticias/' .. n.id .. '</link>')
+    table.insert(linhas, '      <guid>'         .. 'http://localhost:8080/noticias/' .. n.id .. '</guid>')
+    table.insert(linhas, '      <pubDate>'      .. xml_escape(n.criado_em)               .. '</pubDate>')
+    table.insert(linhas, '      <category>'     .. xml_escape(n.categoria)               .. '</category>')
+    table.insert(linhas, '      <description>'  .. xml_escape(n.conteudo:sub(1, 300))    .. '...</description>')
+    table.insert(linhas, '    </item>')
+  end
+ 
+  table.insert(linhas, '  </channel>')
+  table.insert(linhas, '</rss>')
+ 
+  local xml = table.concat(linhas, "\n")
+ 
+  -- Força UTF-8 no Content-Type para o Nginx não corromper os caracteres
+  ngx.header["Content-Type"] = "application/rss+xml; charset=UTF-8"
+  return { layout = false, xml }
 end)
 
 -- ─── API JSON ─────────────────────────────────────────────────────────────────

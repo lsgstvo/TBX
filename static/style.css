@@ -101,12 +101,12 @@ body {
 }
 
 .rss-link {
-  color: var(--accent-color) !important;
+  color: var(--gold-color) !important;
 }
 
 .rss-link:hover {
-  background-color: var(--accent-color) !important;
-  color: white !important;
+  background-color: rgba(245, 158, 11, .15) !important;
+  color: var(--gold-color) !important;
 }
 
 /* Toggle tema */
