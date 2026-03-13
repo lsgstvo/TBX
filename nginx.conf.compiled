@@ -26,6 +26,16 @@ http {
       }
     }
 
+    location /rss {
+      default_type text/xml;
+      content_by_lua_block {
+        require("lapis").serve("app")
+      }
+      header_filter_by_lua_block {
+        ngx.header.content_type = "text/xml; charset=utf-8"
+      }
+    }
+
     location /static/ {
       alias static/;
     }

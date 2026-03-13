@@ -31,7 +31,6 @@ return Widget:extend(function(self)
             a({ href = "/noticias" }, "Notícias")
             a({ href = "/ranking" },  "Ranking")
             a({ href = "/sobre" },    "Sobre")
-            a({ href = "/rss", class = "rss-link", title = "Feed RSS" }, "📡 RSS")
             a({ href = "/admin" },    "Admin")
           end)
           button({ id      = "tema-toggle",

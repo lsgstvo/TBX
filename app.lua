@@ -142,6 +142,17 @@ app:get("/rss", function(self)
     s = s:gsub("'",  "&apos;")
     return s
   end
+
+  -- Lua 5.1 não tem utf8 nativo, um sub corta bytes no meio.
+  -- Solução segura: manter as primeiras X palavras ou cortar por espaço
+  local function truncar_seguro(s, limite)
+    if #s <= limite then return s end
+    local sub = s:sub(1, limite)
+    -- Remove o último pedaço quebrado que pode ser um multibyte cortado pela metade
+    -- Parando sempre em um espaço em branco vazio.
+    local ultimo_espaco = sub:match("^(.*%s)")
+    return (ultimo_espaco or sub) .. "..."
+  end
  
   local linhas = {
     '<?xml version="1.0" encoding="UTF-8"?>',
@@ -161,7 +172,7 @@ app:get("/rss", function(self)
     table.insert(linhas, '      <guid>'         .. 'http://localhost:8080/noticias/' .. n.id .. '</guid>')
     table.insert(linhas, '      <pubDate>'      .. xml_escape(n.criado_em)               .. '</pubDate>')
     table.insert(linhas, '      <category>'     .. xml_escape(n.categoria)               .. '</category>')
-    table.insert(linhas, '      <description>'  .. xml_escape(n.conteudo:sub(1, 300))    .. '...</description>')
+    table.insert(linhas, '      <description>'  .. xml_escape(truncar_seguro(n.conteudo, 300)) .. '</description>')
     table.insert(linhas, '    </item>')
   end
  
@@ -170,11 +181,15 @@ app:get("/rss", function(self)
  
   local xml = table.concat(linhas, "\n")
  
-  -- Força UTF-8 no Content-Type para o Nginx não corromper os caracteres
-  ngx.header["Content-Type"] = "application/rss+xml; charset=UTF-8"
-  return { layout = false, xml }
-end)
+  local respond_to = require("lapis.application").respond_to
 
+  return respond_to({
+    GET = function()
+      ngx.header["Content-Type"] = "text/xml; charset=utf-8"
+      return { layout = false, xml }
+    end
+  })(self)
+end)
 -- ─── API JSON ─────────────────────────────────────────────────────────────────
 
 app:get("/api/noticias", function(self)
