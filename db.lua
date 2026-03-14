@@ -134,6 +134,24 @@ function M.connect()
   db_conn:exec("ALTER TABLE jogos    ADD COLUMN descricao  TEXT    NOT NULL DEFAULT ''")
   db_conn:exec("ALTER TABLE jogos    ADD COLUMN imagem_url TEXT    NOT NULL DEFAULT ''")
 
+ -- Newsletter: cadastros de e-mail
+  db_conn:exec([[
+    CREATE TABLE IF NOT EXISTS newsletter (
+      id         INTEGER PRIMARY KEY AUTOINCREMENT,
+      email      TEXT    NOT NULL UNIQUE,
+      ativo      INTEGER NOT NULL DEFAULT 1,
+      token      TEXT    NOT NULL DEFAULT '',
+      criado_em  TEXT    NOT NULL DEFAULT (datetime('now'))
+    );
+  ]])
+ 
+  -- Moderação: adiciona coluna aprovado nos comentários
+  db_conn:exec("ALTER TABLE comentarios ADD COLUMN aprovado INTEGER NOT NULL DEFAULT 0")
+ 
+  -- Agendamento: adiciona coluna publicar_em nas notícias
+  db_conn:exec("ALTER TABLE noticias ADD COLUMN publicar_em TEXT NOT NULL DEFAULT ''")
+
+
   -- Categorias padrão
   for _, c in ipairs({ "Geral", "Update", "Lançamento", "E-Sports", "Hardware", "Indie" }) do
     db_conn:exec(string.format("INSERT OR IGNORE INTO categorias (nome) VALUES ('%s')", c))
@@ -820,6 +838,258 @@ function M.busca_avancada(filtros)
   ]], where_sql, ordem)
  
   return query(sql)
+end
+
+-- Score de trending: pondera views recentes + comentários recentes + destaque
+-- Janela configurável em horas (padrão: 24h)
+function M.get_trending(limite, horas)
+  limite = tonumber(limite) or 10
+  horas  = tonumber(horas)  or 24
+ 
+  -- Views nas últimas N horas (via views_diarias do dia de hoje e ontem)
+  -- + comentários recentes + boost de destaque
+  return query(string.format([[
+    SELECT
+      n.*,
+      a.nome  AS autor_nome,
+      a.avatar_url AS autor_avatar,
+      COALESCE(vd.views_recentes, 0)   AS views_recentes,
+      COALESCE(cr.coments_recentes, 0) AS coments_recentes,
+      (
+        COALESCE(vd.views_recentes, 0) * 1.0
+        + COALESCE(cr.coments_recentes, 0) * 3.0
+        + (n.destaque * 10.0)
+      ) AS score
+    FROM noticias n
+    LEFT JOIN autores a ON a.id = n.autor_id
+    -- Views nas últimas N horas (agrega os dias relevantes)
+    LEFT JOIN (
+      SELECT noticia_id, SUM(total) AS views_recentes
+      FROM views_diarias
+      WHERE data >= date('now', '-%d hours')
+      GROUP BY noticia_id
+    ) vd ON vd.noticia_id = n.id
+    -- Comentários aprovados nas últimas N horas
+    LEFT JOIN (
+      SELECT noticia_id, COUNT(*) AS coments_recentes
+      FROM comentarios
+      WHERE aprovado = 1
+        AND criado_em >= datetime('now', '-%d hours')
+      GROUP BY noticia_id
+    ) cr ON cr.noticia_id = n.id
+    -- Só notícias já publicadas
+    WHERE (n.publicar_em = '' OR n.publicar_em <= datetime('now'))
+    ORDER BY score DESC, n.criado_em DESC
+    LIMIT %d
+  ]], horas, horas, limite))
+end
+ 
+-- Score simples para widget inline (home/sidebar) — sem JOIN pesado
+function M.get_trending_rapido(limite)
+  limite = tonumber(limite) or 5
+  return query(string.format([[
+    SELECT n.id, n.titulo, n.jogo, n.categoria, n.views, n.destaque,
+      n.criado_em,
+      COALESCE(vd.hoje, 0) AS views_hoje
+    FROM noticias n
+    LEFT JOIN (
+      SELECT noticia_id, total AS hoje
+      FROM views_diarias WHERE data = date('now')
+    ) vd ON vd.noticia_id = n.id
+    WHERE (n.publicar_em = '' OR n.publicar_em <= datetime('now'))
+    ORDER BY (COALESCE(vd.hoje,0) + n.destaque*5) DESC, n.criado_em DESC
+    LIMIT %d
+  ]], limite))
+end
+ 
+-- ─── Newsletter ───────────────────────────────────────────────────────────────
+ 
+-- Gera token simples baseado em timestamp + email
+local function gerar_token(email)
+  return string.format("%x%x", math.floor(os.time()), #email * 7919)
+end
+ 
+-- Cadastra e-mail; retorna "ok", "ja_existe" ou "erro"
+function M.cadastrar_newsletter(email)
+  if not email or email:match("^%s*$") then return "erro" end
+  -- Validação básica de formato
+  if not email:match("^[^@]+@[^@]+%.[^@]+$") then return "erro" end
+ 
+  local conn  = M.connect()
+  local token = gerar_token(email)
+ 
+  -- Verifica se já existe
+  local exist = query(string.format(
+    "SELECT id, ativo FROM newsletter WHERE email = %s LIMIT 1", escape(email)
+  ))
+  if #exist > 0 then
+    if exist[1].ativo == 1 then return "ja_existe" end
+    -- Reativa cadastro cancelado
+    conn:exec(string.format(
+      "UPDATE newsletter SET ativo=1, token=%s WHERE email=%s",
+      escape(token), escape(email)
+    ))
+    return "reativado"
+  end
+ 
+  conn:exec(string.format(
+    "INSERT INTO newsletter (email, token) VALUES (%s, %s)",
+    escape(email), escape(token)
+  ))
+  return "ok"
+end
+ 
+-- Cancela inscrição pelo token
+function M.cancelar_newsletter(token)
+  if not token or token == "" then return false end
+  local conn = M.connect()
+  conn:exec(string.format(
+    "UPDATE newsletter SET ativo=0 WHERE token=%s", escape(token)
+  ))
+  local rows = query(string.format(
+    "SELECT id FROM newsletter WHERE token=%s AND ativo=0 LIMIT 1", escape(token)
+  ))
+  return #rows > 0
+end
+ 
+-- Lista todos os inscritos ativos (para o admin)
+function M.get_newsletter_inscritos()
+  return query("SELECT * FROM newsletter WHERE ativo=1 ORDER BY criado_em DESC")
+end
+ 
+function M.count_newsletter()
+  local r = query("SELECT COUNT(*) AS n FROM newsletter WHERE ativo=1")
+  return r[1] and r[1].n or 0
+end
+ 
+-- Remove permanentemente (admin)
+function M.deletar_inscrito(id)
+  local conn = M.connect()
+  conn:exec("DELETE FROM newsletter WHERE id = " .. tonumber(id))
+end
+ 
+-- ─── Moderação de comentários ─────────────────────────────────────────────────
+ 
+-- Retorna comentários pendentes (aprovado=0)
+function M.get_comentarios_pendentes()
+  return query([[
+    SELECT c.*, n.titulo AS noticia_titulo
+    FROM comentarios c
+    JOIN noticias n ON n.id = c.noticia_id
+    WHERE c.aprovado = 0
+    ORDER BY c.criado_em DESC
+  ]])
+end
+ 
+-- Aprova um comentário
+function M.aprovar_comentario(id)
+  local conn = M.connect()
+  conn:exec("UPDATE comentarios SET aprovado=1 WHERE id=" .. tonumber(id))
+end
+ 
+-- Reprova (deleta) — reusa deletar_comentario existente
+-- (já existe: M.deletar_comentario)
+ 
+-- Retorna comentários aprovados de uma notícia
+-- SUBSTITUI get_comentarios para filtrar aprovados
+function M.get_comentarios_aprovados(noticia_id)
+  return query(string.format(
+    "SELECT * FROM comentarios WHERE noticia_id=%d AND aprovado=1 ORDER BY criado_em ASC",
+    tonumber(noticia_id)
+  ))
+end
+ 
+-- Contagem de pendentes (para badge no admin)
+function M.count_comentarios_pendentes()
+  local r = query("SELECT COUNT(*) AS n FROM comentarios WHERE aprovado=0")
+  return r[1] and r[1].n or 0
+end
+ 
+-- get_comentarios_paginado: versão que suporta filtro de aprovação
+function M.get_comentarios_paginado_v2(pagina, por_pagina, apenas_pendentes)
+  pagina     = tonumber(pagina)     or 1
+  por_pagina = tonumber(por_pagina) or 10
+  local where = apenas_pendentes and "WHERE c.aprovado=0" or ""
+  local total = query(string.format(
+    "SELECT COUNT(*) AS total FROM comentarios c %s", where
+  ))[1].total
+  local offset = (pagina - 1) * por_pagina
+  local rows = query(string.format([[
+    SELECT c.*, n.titulo AS noticia_titulo
+    FROM comentarios c
+    JOIN noticias n ON n.id = c.noticia_id
+    %s
+    ORDER BY c.criado_em DESC
+    LIMIT %d OFFSET %d
+  ]], where, por_pagina, offset))
+  return {
+    rows          = rows,
+    total         = total,
+    pagina        = pagina,
+    por_pagina    = por_pagina,
+    total_paginas = math.ceil(total / por_pagina),
+  }
+end
+ 
+-- ─── Agendamento de publicação ────────────────────────────────────────────────
+ 
+-- Notícias agendadas ainda não publicadas
+function M.get_agendadas()
+  return query([[
+    SELECT * FROM noticias
+    WHERE publicar_em != '' AND publicar_em > datetime('now')
+    ORDER BY publicar_em ASC
+  ]])
+end
+ 
+-- Publica notícias cujo prazo já chegou (chame periodicamente no app)
+function M.publicar_agendadas()
+  local conn = M.connect()
+  -- Marca como publicadas limpando o campo publicar_em
+  conn:exec([[
+    UPDATE noticias
+    SET publicar_em = ''
+    WHERE publicar_em != '' AND publicar_em <= datetime('now')
+  ]])
+  return conn:changes()  -- retorna quantas foram publicadas
+end
+ 
+-- Retorna notícias visíveis publicamente (já publicadas ou sem agendamento)
+function M.get_noticias_publicadas()
+  return query([[
+    SELECT * FROM noticias
+    WHERE publicar_em = '' OR publicar_em <= datetime('now')
+    ORDER BY destaque DESC, criado_em DESC
+  ]])
+end
+ 
+-- Discord Webhook: envia notificação quando uma notícia é publicada
+-- url_webhook: string da URL do webhook do Discord
+-- noticia: tabela com id, titulo, categoria, jogo
+function M.notificar_discord(url_webhook, noticia)
+  if not url_webhook or url_webhook == "" then return false end
+ 
+  local jogo_txt = (noticia.jogo and noticia.jogo ~= "")
+    and (" | 🎮 " .. noticia.jogo) or ""
+ 
+  local payload = string.format(
+    '{"embeds":[{"title":%s,"description":%s,"color":6579953,"fields":[{"name":"Categoria","value":%s,"inline":true}%s],"url":%s}]}',
+    string.format("%q", noticia.titulo),
+    string.format("%q", (noticia.conteudo or ""):sub(1, 200) .. "..."),
+    string.format("%q", noticia.categoria or "Geral"),
+    jogo_txt ~= "" and string.format(',{"name":"Jogo","value":%s,"inline":true}',
+      string.format("%q", noticia.jogo)) or "",
+    string.format("%q", "http://localhost:8080/noticias/" .. noticia.id)
+  )
+ 
+  -- Usa curl via os.execute (OpenResty tem restrições no socket HTTP nativo)
+  local cmd = string.format(
+    "curl -s -X POST -H 'Content-Type: application/json' -d %s %s &",
+    string.format("%q", payload),
+    string.format("%q", url_webhook)
+  )
+  os.execute(cmd)
+  return true
 end
 
 return M

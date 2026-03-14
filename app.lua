@@ -6,28 +6,40 @@ local auth  = require("auth")
 local app = lapis.Application()
 app.layout = require("views.layout")
 
+-- Lê o webhook do Discord da config (opcional)
+-- No config.lua, adicione: config.discord_webhook = "https://discord.com/api/webhooks/..."
+ 
+local config = require("lapis.config").get()
+
 local function trim(s) return (s or ""):match("^%s*(.-)%s*$") end
 
 -- ─── Home ─────────────────────────────────────────────────────────────────────
 
 app:get("/", function(self)
-  self.destaques        = db.get_destaques()
-  local todas           = db.get_noticias()
-  local ids_dest        = {}
+  self.destaques          = db.get_destaques()
+  local todas             = db.get_noticias_publicadas()  -- respeita agendamento
+  local ids_dest          = {}
   for _, d in ipairs(self.destaques) do ids_dest[d.id] = true end
-  local recentes        = {}
+  local recentes          = {}
   for _, n in ipairs(todas) do
     if not ids_dest[n.id] then
       table.insert(recentes, n)
       if #recentes >= 5 then break end
     end
   end
-  self.noticias         = recentes
-  self.mais_vistas      = db.get_mais_vistas(5)
-  self.jogos_com_noticias = db.get_jogos_com_noticias(3, 3)  -- widget home
-  self.og_url           = "http://localhost:8080/"
+  self.noticias             = recentes
+  self.mais_vistas          = db.get_mais_vistas(5)
+  self.jogos_com_noticias   = db.get_jogos_com_noticias(3, 3)
+  self.trending_rapido      = db.get_trending_rapido(5)
+  self.og_url               = "http://localhost:8080/"
+  -- Flash messages
+  self.flash_newsletter_msg = self.session.newsletter_msg
+  self.session.newsletter_msg = nil
+  self.flash_coment_ok = self.session.coment_ok
+  self.session.coment_ok = nil
   return { render = "index" }
 end)
+
 
 
 -- ─── Sobre ────────────────────────────────────────────────────────────────────
@@ -98,11 +110,16 @@ end)
 app:get("/noticias/:id", function(self)
   local noticia = db.get_noticia(self.params.id)
   if not noticia then return { status = 404, render = "erro" } end
+  -- Bloqueia acesso a notícias ainda agendadas
+  if noticia.publicar_em and noticia.publicar_em ~= ""
+    and noticia.publicar_em > os.date("%Y-%m-%d %H:%M:%S") then
+    return { status = 404, render = "erro" }
+  end
   db.incrementar_views(self.params.id)
-  db.registrar_view_diaria(self.params.id)       -- novo: view diária
+  db.registrar_view_diaria(self.params.id)
   self.noticia         = noticia
   self.autor           = noticia.autor_id and db.get_autor(noticia.autor_id) or nil
-  self.comentarios     = db.get_comentarios(self.params.id)
+  self.comentarios     = db.get_comentarios_aprovados(self.params.id)  -- só aprovados
   self.relacionadas    = db.get_noticias_relacionadas(
                            noticia.id, noticia.jogo, noticia.categoria, 4)
   self.jogos_populares = db.get_jogos()
@@ -110,6 +127,11 @@ app:get("/noticias/:id", function(self)
   self.tags            = db.get_tags_da_noticia(self.params.id)
   self.erro_coment     = self.session.coment_erro
   self.session.coment_erro = nil
+  -- Flash messages (lidas e limpas aqui para garantir que o cookie seja salvo)
+  self.flash_coment_ok = self.session.coment_ok
+  self.session.coment_ok = nil
+  self.flash_newsletter_msg = self.session.newsletter_msg
+  self.session.newsletter_msg = nil
   self.og_titulo    = noticia.titulo
   self.og_descricao = noticia.conteudo:sub(1, 160)
   self.og_url       = "http://localhost:8080/noticias/" .. noticia.id
@@ -118,30 +140,31 @@ app:get("/noticias/:id", function(self)
 end)
 
 
+
 -- ─── POST: Enviar comentário ──────────────────────────────────────────────────
 
 app:post("/noticias/:id/comentar", function(self)
   local autor    = trim(self.params.autor)
   local conteudo = trim(self.params.conteudo)
-
   if conteudo == "" then
     self.session.coment_erro = "O comentário não pode estar vazio."
     return { redirect_to = "/noticias/" .. self.params.id }
   end
-
-  -- Limite básico de tamanho
   if #conteudo > 800 then
     self.session.coment_erro = "Comentário muito longo (máx. 800 caracteres)."
     return { redirect_to = "/noticias/" .. self.params.id }
   end
-
   db.criar_comentario(
     self.params.id,
     autor ~= "" and autor or "Anônimo",
     conteudo
   )
+  -- Avisa que está aguardando moderação
+  self.session.coment_erro = nil
+  self.session.coment_ok   = "Comentário enviado! Ele aparecerá após moderação. ✅"
   return { redirect_to = "/noticias/" .. self.params.id .. "#comentarios" }
 end)
+
 
 -- ─── Categoria ───────────────────────────────────────────────────────────────
 
@@ -181,6 +204,81 @@ app:get("/busca", function(self)
   self.og_titulo  = "Busca Avançada"
   self.og_url     = "http://localhost:8080/busca"
   return { render = "busca_avancada" }
+end)
+
+app:get("/trending", function(self)
+  local janela        = tonumber(self.params.h) or 24
+  self.noticias       = db.get_trending(20, janela)
+  self.janela         = janela
+  self.og_titulo      = "🔥 Trending — Portal Gamer"
+  self.og_descricao   = "As notícias mais quentes das últimas " .. janela .. " horas."
+  self.og_url         = "http://localhost:8080/trending"
+  return { render = "trending" }
+end)
+
+app:post("/newsletter/cadastrar", function(self)
+  local email    = trim(self.params.email or "")
+  local resultado = db.cadastrar_newsletter(email)
+  local msgs = {
+    ok         = "✅ Cadastrado com sucesso! Você receberá nossas novidades.",
+    ja_existe  = "ℹ️ Este e-mail já está cadastrado.",
+    reativado  = "✅ Sua inscrição foi reativada!",
+    erro       = "❌ E-mail inválido. Verifique e tente novamente.",
+  }
+  self.session.newsletter_msg = msgs[resultado] or msgs.erro
+  -- Redireciona para a página de onde veio (ou home)
+  local origem = self.params.origem or "/"
+  return { redirect_to = origem }
+end)
+ 
+app:get("/newsletter/cancelar", function(self)
+  local token = trim(self.params.token or "")
+  local ok    = db.cancelar_newsletter(token)
+  self.cancelado = ok
+  return { render = "newsletter_cancelar" }
+end)
+ 
+-- Admin: lista inscritos
+app:get("/admin/newsletter", function(self)
+  if not auth.require_login(self) then return end
+  self.inscritos = db.get_newsletter_inscritos()
+  self.total     = db.count_newsletter()
+  return { render = "admin.admin_newsletter", layout = "admin.admin_layout" }
+end)
+ 
+app:post("/admin/newsletter/:id/deletar", function(self)
+  if not auth.require_login(self) then return end
+  db.deletar_inscrito(self.params.id)
+  return { redirect_to = "/admin/newsletter" }
+end)
+
+app:post("/admin/comentarios/:id/aprovar", function(self)
+  if not auth.require_login(self) then return end
+  db.aprovar_comentario(self.params.id)
+  local ref = self.req.headers["referer"] or "/admin"
+  return { redirect_to = ref }
+end)
+ 
+-- (deletar já existe: POST /admin/comentarios/:id/deletar)
+
+-- Pode ser chamado por um cron: curl -s http://localhost:8080/admin/cron/publicar
+-- Protegido por secret na query string
+ 
+app:get("/admin/cron/publicar", function(self)
+  local secret = trim(self.params.secret or "")
+  if secret ~= (config.cron_secret or "portal_cron_2026") then
+    return { status = 403, json = { status = "negado" } }
+  end
+  local publicadas = db.publicar_agendadas()
+  -- Notifica Discord para cada uma (se configurado)
+  if publicadas > 0 and config.discord_webhook then
+    -- Pega as recém-publicadas (criadas hoje, publicar_em vazio)
+    local recentes = db.get_noticias_publicadas()
+    for i = 1, math.min(publicadas, #recentes) do
+      db.notificar_discord(config.discord_webhook, recentes[i])
+    end
+  end
+  return { json = { status = "ok", publicadas = publicadas } }
 end)
 
 app:get("/noticias/:id/pdf", function(self)
@@ -593,18 +691,23 @@ app:get("/admin", function(self)
   if not auth.require_login(self) then return end
   self.noticias  = db.get_noticias()
   self.jogos     = db.get_jogos()
-  local pag_coment        = tonumber(self.params.pagina_coment) or 1
-  local res_coment        = db.get_comentarios_paginado(pag_coment, 10)
+  local filtro_pend = self.params.pendentes == "1"
+  local pag_coment  = tonumber(self.params.pagina_coment) or 1
+  local res_coment  = db.get_comentarios_paginado_v2(pag_coment, 10, filtro_pend)
   self.comentarios        = res_coment.rows
   self.coment_pagina      = res_coment.pagina
   self.coment_total_pag   = res_coment.total_paginas
   self.coment_total       = res_coment.total
-  -- Dashboard: views por dia (últimos 30 dias) e top notícias da semana
+  self.pendentes_count    = db.count_comentarios_pendentes()
+  self.filtro_pendentes   = filtro_pend
   self.views_por_dia      = db.get_views_por_dia(30)
   self.top_semana         = db.get_top_noticias_views(7, 5)
   self.autores            = db.get_autores()
+  self.agendadas          = db.get_agendadas()
+  self.newsletter_total   = db.count_newsletter()
   return { render = "admin.admin_painel", layout = "admin.admin_layout" }
 end)
+
 
 
 -- ─── Admin: Notícias ─────────────────────────────────────────────────────────
@@ -622,13 +725,16 @@ end)
 
 
 
+-- Suporte a agendamento + notificação Discord
+ 
 app:post("/admin/noticias/nova", function(self)
   if not auth.require_login(self) then return end
-  local titulo     = trim(self.params.titulo)
-  local conteudo   = trim(self.params.conteudo)
-  local tags_str   = trim(self.params.tags or "")
-  local imagem_url = trim(self.params.imagem_url or "")
-  local autor_id   = tonumber(self.params.autor_id) or nil
+  local titulo      = trim(self.params.titulo)
+  local conteudo    = trim(self.params.conteudo)
+  local tags_str    = trim(self.params.tags       or "")
+  local imagem_url  = trim(self.params.imagem_url or "")
+  local autor_id    = tonumber(self.params.autor_id) or nil
+  local publicar_em = trim(self.params.publicar_em or "")
   if titulo == "" or conteudo == "" then
     self.session.form_erro = "Título e conteúdo são obrigatórios."
     return { redirect_to = "/admin/noticias/nova" }
@@ -637,13 +743,17 @@ app:post("/admin/noticias/nova", function(self)
                trim(self.params.categoria), self.params.destaque == "1")
   if tags_str ~= "" then db.salvar_tags_noticia(id, tags_str) end
   local conn = db.connect()
-  if imagem_url ~= "" or autor_id then
-    conn:exec(string.format(
-      "UPDATE noticias SET imagem_url='%s', autor_id=%s WHERE id=%d",
-      imagem_url:gsub("'","''"),
-      autor_id and tostring(autor_id) or "NULL",
-      tonumber(id)
-    ))
+  conn:exec(string.format(
+    "UPDATE noticias SET imagem_url='%s', autor_id=%s, publicar_em='%s' WHERE id=%d",
+    imagem_url:gsub("'","''"),
+    autor_id and tostring(autor_id) or "NULL",
+    publicar_em:gsub("'","''"),
+    tonumber(id)
+  ))
+  -- Notificação Discord (só se publicação imediata)
+  if publicar_em == "" and config.discord_webhook then
+    local noticia = db.get_noticia(id)
+    if noticia then db.notificar_discord(config.discord_webhook, noticia) end
   end
   return { redirect_to = "/admin" }
 end)

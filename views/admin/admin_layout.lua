@@ -30,15 +30,18 @@ return Widget:extend(function(self)
           li(function() a({ href = "/admin/noticias/nova" }, "➕ Nova Notícia") end)
           li(function() a({ href = "/admin/jogos/novo" },    "🎮 Novo Jogo") end)
           li(function() a({ href = "/admin/autores" },       "✍️ Autores") end)
+          li(function() a({ href = "/admin/newsletter" },    "📧 Newsletter") end)
           li(function()
-            a({ href = "/admin#comentarios", id = "link-comentarios" }, function()
+            a({ href = "/admin?pendentes=1#comentarios",
+                id   = "link-comentarios" }, function()
               raw('💬 Comentários <span id="badge-coment" class="badge-notif" style="display:none">0</span>')
             end)
           end)
-          li(function() a({ href = "/api/docs" },            "📖 API Docs") end)
-          li(function() a({ href = "/busca" },               "🔍 Busca Avançada") end)
-          li(function() a({ href = "/stats" },               "📊 Estatísticas") end)
-          li(function() a({ href = "/" },                    "🌐 Ver site") end)
+          li(function() a({ href = "/api/docs" },   "📖 API Docs") end)
+          li(function() a({ href = "/trending" },   "🔥 Trending") end)
+          li(function() a({ href = "/busca" },      "🔍 Busca Avançada") end)
+          li(function() a({ href = "/stats" },      "📊 Estatísticas") end)
+          li(function() a({ href = "/" },           "🌐 Ver site") end)
           li(function()
             a({ href = "/admin/logout", class = "logout-link" }, "🚪 Sair")
           end)
@@ -76,6 +79,7 @@ return Widget:extend(function(self)
               novo === 'dark' ? '\u2600\uFE0F Alternar Tema' : '\uD83C\uDF19 Alternar Tema';
           }
 
+          // Badge de pendentes
           (function() {
             var CHAVE = 'admin_coment_visto';
             var badge = document.getElementById('badge-coment');
@@ -89,9 +93,7 @@ return Widget:extend(function(self)
                   if (novos > 0) {
                     badge.textContent = novos > 99 ? '99+' : String(novos);
                     badge.style.display = 'inline-flex';
-                  } else {
-                    badge.style.display = 'none';
-                  }
+                  } else { badge.style.display = 'none'; }
                 }).catch(function(){});
             }
             var link = document.getElementById('link-comentarios');
@@ -99,10 +101,10 @@ return Widget:extend(function(self)
               link.addEventListener('click', function() {
                 fetch('/admin/api/novos-comentarios')
                   .then(function(r){ return r.json(); })
-                  .then(function(data) {
-                    if (data.status==='ok') {
-                      localStorage.setItem(CHAVE, String(data.total));
-                      badge.style.display = 'none';
+                  .then(function(d) {
+                    if (d.status==='ok') {
+                      localStorage.setItem(CHAVE, String(d.total));
+                      badge.style.display='none';
                     }
                   });
               });
