@@ -151,6 +151,35 @@ function M.connect()
   -- Agendamento: adiciona coluna publicar_em nas notícias
   db_conn:exec("ALTER TABLE noticias ADD COLUMN publicar_em TEXT NOT NULL DEFAULT ''")
 
+-- Curtidas/descurtidas por IP por notícia
+  db_conn:exec([[
+    CREATE TABLE IF NOT EXISTS curtidas (
+      id         INTEGER PRIMARY KEY AUTOINCREMENT,
+      noticia_id INTEGER NOT NULL,
+      tipo       TEXT    NOT NULL CHECK(tipo IN ('like','dislike')),
+      ip         TEXT    NOT NULL DEFAULT '',
+      criado_em  TEXT    NOT NULL DEFAULT (datetime('now')),
+      UNIQUE(noticia_id, ip),
+      FOREIGN KEY (noticia_id) REFERENCES noticias(id) ON DELETE CASCADE
+    );
+  ]])
+ 
+  -- Log de atividades do admin
+  db_conn:exec([[
+    CREATE TABLE IF NOT EXISTS log_atividades (
+      id        INTEGER PRIMARY KEY AUTOINCREMENT,
+      acao      TEXT NOT NULL,
+      entidade  TEXT NOT NULL DEFAULT '',
+      detalhe   TEXT NOT NULL DEFAULT '',
+      ip        TEXT NOT NULL DEFAULT '',
+      criado_em TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+  ]])
+ 
+  -- Migrações seguras nas notícias
+  db_conn:exec("ALTER TABLE noticias ADD COLUMN likes    INTEGER NOT NULL DEFAULT 0")
+  db_conn:exec("ALTER TABLE noticias ADD COLUMN dislikes INTEGER NOT NULL DEFAULT 0")
+
 
   -- Categorias padrão
   for _, c in ipairs({ "Geral", "Update", "Lançamento", "E-Sports", "Hardware", "Indie" }) do
@@ -1090,6 +1119,180 @@ function M.notificar_discord(url_webhook, noticia)
   )
   os.execute(cmd)
   return true
+end
+
+-- Retorna contagens e voto do IP atual
+function M.get_curtidas(noticia_id, ip)
+  noticia_id = tonumber(noticia_id)
+  local contagem = query(string.format([[
+    SELECT
+      SUM(tipo='like')    AS likes,
+      SUM(tipo='dislike') AS dislikes
+    FROM curtidas WHERE noticia_id = %d
+  ]], noticia_id))[1] or { likes = 0, dislikes = 0 }
+ 
+  local meu_voto = nil
+  if ip and ip ~= "" then
+    local rows = query(string.format(
+      "SELECT tipo FROM curtidas WHERE noticia_id=%d AND ip=%s LIMIT 1",
+      noticia_id, escape(ip)
+    ))
+    meu_voto = rows[1] and rows[1].tipo or nil
+  end
+ 
+  return {
+    likes    = tonumber(contagem.likes)    or 0,
+    dislikes = tonumber(contagem.dislikes) or 0,
+    meu_voto = meu_voto,
+  }
+end
+ 
+-- Registra ou alterna curtida
+-- Retorna o estado atualizado { likes, dislikes, meu_voto }
+function M.curtir(noticia_id, tipo, ip)
+  noticia_id = tonumber(noticia_id)
+  if tipo ~= "like" and tipo ~= "dislike" then return nil end
+  local conn = M.connect()
+ 
+  -- Verifica voto existente
+  local existente = query(string.format(
+    "SELECT id, tipo FROM curtidas WHERE noticia_id=%d AND ip=%s LIMIT 1",
+    noticia_id, escape(ip)
+  ))
+ 
+  if #existente > 0 then
+    if existente[1].tipo == tipo then
+      -- Mesmo voto: remove (toggle off)
+      conn:exec("DELETE FROM curtidas WHERE id=" .. existente[1].id)
+    else
+      -- Voto diferente: troca
+      conn:exec(string.format(
+        "UPDATE curtidas SET tipo=%s WHERE id=%d",
+        escape(tipo), existente[1].id
+      ))
+    end
+  else
+    -- Novo voto
+    conn:exec(string.format(
+      "INSERT INTO curtidas (noticia_id, tipo, ip) VALUES (%d, %s, %s)",
+      noticia_id, escape(tipo), escape(ip)
+    ))
+  end
+ 
+  -- Sincroniza contadores na tabela noticias (cache denormalizado)
+  local c = M.get_curtidas(noticia_id, ip)
+  conn:exec(string.format(
+    "UPDATE noticias SET likes=%d, dislikes=%d WHERE id=%d",
+    c.likes, c.dislikes, noticia_id
+  ))
+ 
+  return c
+end
+ 
+-- Top notícias mais curtidas
+function M.get_mais_curtidas(limite)
+  return query(string.format([[
+    SELECT id, titulo, likes, dislikes, categoria, jogo, criado_em
+    FROM noticias
+    WHERE likes > 0
+    ORDER BY likes DESC, criado_em DESC
+    LIMIT %d
+  ]], tonumber(limite) or 10))
+end
+ 
+-- ─── Log de atividades ────────────────────────────────────────────────────────
+ 
+-- Registra uma ação no log
+function M.log(acao, entidade, detalhe, ip)
+  local conn = M.connect()
+  conn:exec(string.format(
+    "INSERT INTO log_atividades (acao, entidade, detalhe, ip) VALUES (%s,%s,%s,%s)",
+    escape(acao), escape(entidade or ""), escape(detalhe or ""), escape(ip or "")
+  ))
+end
+ 
+-- Retorna log paginado
+function M.get_log(pagina, por_pagina)
+  pagina     = tonumber(pagina)     or 1
+  por_pagina = tonumber(por_pagina) or 20
+  local total  = query("SELECT COUNT(*) AS n FROM log_atividades")[1].n
+  local offset = (pagina - 1) * por_pagina
+  local rows   = query(string.format([[
+    SELECT * FROM log_atividades
+    ORDER BY criado_em DESC
+    LIMIT %d OFFSET %d
+  ]], por_pagina, offset))
+  return {
+    rows          = rows,
+    total         = total,
+    pagina        = pagina,
+    total_paginas = math.ceil(total / por_pagina),
+  }
+end
+ 
+-- Limpa logs antigos (mantém últimos N dias)
+function M.limpar_log_antigo(dias)
+  local conn = M.connect()
+  conn:exec(string.format(
+    "DELETE FROM log_atividades WHERE criado_em < datetime('now','-%d days')",
+    tonumber(dias) or 90
+  ))
+end
+ 
+-- ─── Timeline do portal (para /about) ────────────────────────────────────────
+ 
+-- Retorna dados consolidados para a página About/Timeline
+function M.get_dados_about()
+  -- Primeira notícia (nascimento do portal)
+  local primeira = query(
+    "SELECT criado_em FROM noticias ORDER BY criado_em ASC LIMIT 1"
+  )[1]
+ 
+  -- Marcos mensais: meses com mais publicações
+  local por_mes = query([[
+    SELECT strftime('%Y-%m', criado_em) AS mes, COUNT(*) AS total
+    FROM noticias
+    GROUP BY mes ORDER BY total DESC LIMIT 3
+  ]])
+ 
+  -- Jogos mais cobertos
+  local top_jogos = query([[
+    SELECT jogo, COUNT(*) AS total FROM noticias
+    WHERE jogo != ''
+    GROUP BY jogo ORDER BY total DESC LIMIT 5
+  ]])
+ 
+  -- Autores mais ativos
+  local top_autores = query([[
+    SELECT a.nome, a.avatar_url, COUNT(n.id) AS total
+    FROM autores a
+    LEFT JOIN noticias n ON n.autor_id = a.id
+    GROUP BY a.id ORDER BY total DESC LIMIT 3
+  ]])
+ 
+  -- Totais gerais
+  local totais = {
+    noticias  = query("SELECT COUNT(*) AS n FROM noticias")[1].n,
+    jogos     = query("SELECT COUNT(*) AS n FROM jogos")[1].n,
+    autores   = query("SELECT COUNT(*) AS n FROM autores")[1].n,
+    comentarios = query("SELECT COUNT(*) AS n FROM comentarios WHERE aprovado=1")[1].n,
+    curtidas  = query("SELECT SUM(likes) AS n FROM noticias")[1].n or 0,
+    inscritos = query("SELECT COUNT(*) AS n FROM newsletter WHERE ativo=1")[1].n,
+  }
+ 
+  -- Notícia mais popular de todos os tempos
+  local mais_popular = query(
+    "SELECT id, titulo, views, likes FROM noticias ORDER BY views DESC LIMIT 1"
+  )[1]
+ 
+  return {
+    primeira      = primeira,
+    por_mes       = por_mes,
+    top_jogos     = top_jogos,
+    top_autores   = top_autores,
+    totais        = totais,
+    mais_popular  = mais_popular,
+  }
 end
 
 return M

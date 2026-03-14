@@ -51,6 +51,15 @@ app:get("/sobre", function(self)
   return { render = "sobre" }
 end)
 
+app:get("/about", function(self)
+  self.dados        = db.get_dados_about()
+  self.og_titulo    = "Sobre o Portal Gamer"
+  self.og_descricao = "A história e os números do Portal Gamer."
+  self.og_url       = "http://localhost:8080/about"
+  return { render = "about" }
+end)
+
+
 -- ─── Ranking ─────────────────────────────────────────────────────────────────
 
 app:get("/ranking", function(self)
@@ -110,36 +119,33 @@ end)
 app:get("/noticias/:id", function(self)
   local noticia = db.get_noticia(self.params.id)
   if not noticia then return { status = 404, render = "erro" } end
-  -- Bloqueia acesso a notícias ainda agendadas
   if noticia.publicar_em and noticia.publicar_em ~= ""
     and noticia.publicar_em > os.date("%Y-%m-%d %H:%M:%S") then
     return { status = 404, render = "erro" }
   end
   db.incrementar_views(self.params.id)
   db.registrar_view_diaria(self.params.id)
+  local ip             = ngx.var.remote_addr or "0.0.0.0"
   self.noticia         = noticia
   self.autor           = noticia.autor_id and db.get_autor(noticia.autor_id) or nil
-  self.comentarios     = db.get_comentarios_aprovados(self.params.id)  -- só aprovados
+  self.comentarios     = db.get_comentarios_aprovados(self.params.id)
   self.relacionadas    = db.get_noticias_relacionadas(
                            noticia.id, noticia.jogo, noticia.categoria, 4)
   self.jogos_populares = db.get_jogos()
   self.mais_vistas     = db.get_mais_vistas(6)
   self.tags            = db.get_tags_da_noticia(self.params.id)
+  self.curtidas        = db.get_curtidas(self.params.id, ip)   -- novo
+  self.modo_leitura    = self.params.leitura == "1"             -- novo: ?leitura=1
   self.erro_coment     = self.session.coment_erro
   self.session.coment_erro = nil
-  -- Flash messages (lidas e limpas aqui para garantir que o cookie seja salvo)
   self.flash_coment_ok = self.session.coment_ok
   self.session.coment_ok = nil
-  self.flash_newsletter_msg = self.session.newsletter_msg
-  self.session.newsletter_msg = nil
   self.og_titulo    = noticia.titulo
   self.og_descricao = noticia.conteudo:sub(1, 160)
   self.og_url       = "http://localhost:8080/noticias/" .. noticia.id
   self.og_tipo      = "article"
   return { render = "noticia_detalhe" }
 end)
-
-
 
 -- ─── POST: Enviar comentário ──────────────────────────────────────────────────
 
@@ -280,6 +286,27 @@ app:get("/admin/cron/publicar", function(self)
   end
   return { json = { status = "ok", publicadas = publicadas } }
 end)
+
+app:get("/admin/log", function(self)
+  if not auth.require_login(self) then return end
+  local pagina   = tonumber(self.params.pagina) or 1
+  local resultado = db.get_log(pagina, 25)
+  self.log_rows         = resultado.rows
+  self.log_pagina       = resultado.pagina
+  self.log_total_pag    = resultado.total_paginas
+  self.log_total        = resultado.total
+  return { render = "admin.admin_log", layout = "admin.admin_layout" }
+end)
+ 
+app:post("/admin/log/limpar", function(self)
+  if not auth.require_login(self) then return end
+  db.limpar_log_antigo(tonumber(self.params.dias) or 90)
+  db.log("limpar_log", "log_atividades",
+    "Limpou entradas com mais de " .. (self.params.dias or "90") .. " dias",
+    ngx.var.remote_addr or "")
+  return { redirect_to = "/admin/log" }
+end)
+
 
 app:get("/noticias/:id/pdf", function(self)
   local noticia = db.get_noticia(self.params.id)
@@ -605,6 +632,29 @@ app:get("/api/busca", function(self)
   return { json = { status = "ok", data = lite, total = #lite } }
 end)
 
+app:post("/api/curtir/:id", function(self)
+  local tipo = self.params.tipo
+  local ip   = ngx.var.remote_addr or "0.0.0.0"
+ 
+  if tipo ~= "like" and tipo ~= "dislike" then
+    return { json = { status = "erro", mensagem = "Tipo inválido." } }
+  end
+ 
+  local noticia = db.get_noticia(self.params.id)
+  if not noticia then
+    return { json = { status = "erro", mensagem = "Notícia não encontrada." } }
+  end
+ 
+  local resultado = db.curtir(self.params.id, tipo, ip)
+  return { json = {
+    status   = "ok",
+    likes    = resultado.likes,
+    dislikes = resultado.dislikes,
+    meu_voto = resultado.meu_voto,
+  }}
+end)
+
+
 app:post("/admin/upload/imagem", function(self)
   if not auth.require_login(self) then return end
  
@@ -672,6 +722,7 @@ end)
 app:post("/admin/login", function(self)
   if auth.check_credentials(self.params.usuario or "", self.params.senha or "") then
     self.session.admin = true
+    db.log("login", "admin", self.params.usuario, ngx.var.remote_addr or "")
     return { redirect_to = "/admin" }
   end
   self.session.login_erro = "Usuário ou senha incorretos."
@@ -750,6 +801,7 @@ app:post("/admin/noticias/nova", function(self)
     publicar_em:gsub("'","''"),
     tonumber(id)
   ))
+  db.log("criar_noticia", "noticias", "ID "..id.." — "..titulo, ngx.var.remote_addr or "")
   -- Notificação Discord (só se publicação imediata)
   if publicar_em == "" and config.discord_webhook then
     local noticia = db.get_noticia(id)
@@ -799,6 +851,7 @@ app:post("/admin/noticias/:id/editar", function(self)
     autor_id and tostring(autor_id) or "NULL",
     tonumber(self.params.id)
   ))
+  db.log("editar_noticia", "noticias", "ID "..self.params.id.." — "..titulo, ngx.var.remote_addr or "")
   db.limpar_historico_antigo(self.params.id, 10)
   return { redirect_to = "/admin" }
 end)
@@ -807,14 +860,23 @@ end)
 app:post("/admin/noticias/:id/deletar", function(self)
   if not auth.require_login(self) then return end
   db.deletar_noticia(self.params.id)
+  db.log("deletar_noticia", "noticias", "ID "..self.params.id, ngx.var.remote_addr or "")
   return { redirect_to = "/admin" }
 end)
 
 -- ─── Admin: Comentários ───────────────────────────────────────────────────────
 
+app:post("/admin/comentarios/:id/aprovar", function(self)
+  if not auth.require_login(self) then return end
+  db.aprovar_comentario(self.params.id)
+  db.log("aprovar_comentario", "comentarios", "ID "..self.params.id, ngx.var.remote_addr or "")
+  return { redirect_to = "/admin#comentarios" }
+end)
+
 app:post("/admin/comentarios/:id/deletar", function(self)
   if not auth.require_login(self) then return end
   db.deletar_comentario(self.params.id)
+  db.log("deletar_comentario", "comentarios", "ID "..self.params.id, ngx.var.remote_addr or "")
   return { redirect_to = "/admin#comentarios" }
 end)
 
@@ -831,11 +893,13 @@ app:post("/admin/jogos/novo", function(self)
   local nome = trim(self.params.nome); local players = trim(self.params.players)
   if nome == "" or players == "" then
     self.session.form_erro = "Nome e base de jogadores são obrigatórios."
+    db.log("criar_jogo", "jogos", nome, ngx.var.remote_addr or "")
     return { redirect_to = "/admin/jogos/novo" }
   end
   db.criar_jogo(nome, trim(self.params.genero), players,
     tonumber(self.params.posicao) or 0,
     trim(self.params.descricao), trim(self.params.imagem_url))
+  db.log("criar_jogo", "jogos", nome, ngx.var.remote_addr or "")
   return { redirect_to = "/admin" }
 end)
 

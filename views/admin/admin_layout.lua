@@ -37,10 +37,12 @@ return Widget:extend(function(self)
               raw('💬 Comentários <span id="badge-coment" class="badge-notif" style="display:none">0</span>')
             end)
           end)
+          li(function() a({ href = "/admin/log" },  "📋 Log") end)
           li(function() a({ href = "/api/docs" },   "📖 API Docs") end)
           li(function() a({ href = "/trending" },   "🔥 Trending") end)
           li(function() a({ href = "/busca" },      "🔍 Busca Avançada") end)
           li(function() a({ href = "/stats" },      "📊 Estatísticas") end)
+          li(function() a({ href = "/about" },      "ℹ️ About") end)
           li(function() a({ href = "/" },           "🌐 Ver site") end)
           li(function()
             a({ href = "/admin/logout", class = "logout-link" }, "🚪 Sair")
@@ -79,7 +81,6 @@ return Widget:extend(function(self)
               novo === 'dark' ? '\u2600\uFE0F Alternar Tema' : '\uD83C\uDF19 Alternar Tema';
           }
 
-          // Badge de pendentes
           (function() {
             var CHAVE = 'admin_coment_visto';
             var badge = document.getElementById('badge-coment');
