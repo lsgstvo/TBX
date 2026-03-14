@@ -336,4 +336,10 @@ function M.get_comentarios_paginado(pagina, por_pagina)
   }
 end
 
+-- Conta total de comentários (usado pela notificação do admin)
+function M.count_todos_comentarios()
+  local r = query("SELECT COUNT(*) as total FROM comentarios")
+  return r[1] and r[1].total or 0
+end
+
 return M

@@ -1,4 +1,5 @@
 -- views/admin/admin_noticia_form.lua
+-- (igual ao anterior, mas com campo de imagem + upload via AJAX)
 local Widget = require("lapis.html").Widget
 
 return Widget:extend(function(self)
@@ -6,13 +7,13 @@ return Widget:extend(function(self)
     h2("➕ Nova Notícia")
     if self.erro then div({ class = "alert alert-erro" }, self.erro) end
 
-    -- Layout: form à esquerda, preview à direita
     div({ class = "form-preview-layout" }, function()
 
       -- Formulário
       div({ class = "form-col" }, function()
-        form({ method = "POST", action = "/admin/noticias/nova",
-               class  = "admin-form", id = "form-noticia" }, function()
+        form({ method  = "POST", action = "/admin/noticias/nova",
+               class   = "admin-form", id = "form-noticia",
+               enctype = "multipart/form-data" }, function()
 
           div({ class = "form-group" }, function()
             label({ ["for"] = "titulo" }, "Título *")
@@ -50,6 +51,22 @@ return Widget:extend(function(self)
                        required = true, oninput = "atualizarPreview()" })
           end)
 
+          -- Campo de imagem com upload AJAX
+          div({ class = "form-group" }, function()
+            label({}, "Imagem de Capa")
+            div({ class = "upload-wrapper" }, function()
+              input({ type        = "file",
+                      id          = "upload-arquivo",
+                      accept      = "image/jpeg,image/png,image/gif,image/webp",
+                      class       = "upload-input",
+                      onchange    = "fazerUpload(this)" })
+              div({ id = "upload-status", class = "upload-status" })
+              div({ id = "upload-preview", class = "upload-img-preview" })
+            end)
+            -- Campo hidden que recebe a URL após upload
+            input({ type = "hidden", id = "imagem_url", name = "imagem_url" })
+          end)
+
           div({ class = "form-check" }, function()
             input({ type = "checkbox", id = "destaque", name = "destaque",
                     value = "1", onchange = "atualizarPreview()" })
@@ -63,7 +80,7 @@ return Widget:extend(function(self)
         end)
       end)
 
-      -- Painel de preview ao vivo
+      -- Preview ao vivo
       div({ class = "preview-col" }, function()
         div({ class = "preview-header" }, function()
           span({ class = "preview-label" }, "👁 Preview")
@@ -73,56 +90,79 @@ return Widget:extend(function(self)
           div({ class = "preview-empty" }, "Preencha o formulário para ver o preview →")
         end)
       end)
-
     end)
   end)
 
-  -- Script de preview ao vivo
   script(function()
     raw([[
+      // ── Upload de imagem ──────────────────────────────────────────────
+      function fazerUpload(input) {
+        var arquivo = input.files[0];
+        if (!arquivo) return;
+
+        var status  = document.getElementById('upload-status');
+        var preview = document.getElementById('upload-preview');
+        var hidden  = document.getElementById('imagem_url');
+
+        status.textContent  = '⏳ Enviando...';
+        status.className    = 'upload-status upload-enviando';
+        preview.innerHTML   = '';
+
+        var formData = new FormData();
+        formData.append('imagem', arquivo);
+
+        fetch('/admin/upload/imagem', { method: 'POST', body: formData })
+          .then(function(r) { return r.json(); })
+          .then(function(data) {
+            if (data.status === 'ok') {
+              hidden.value       = data.url;
+              status.textContent = '✅ Upload concluído!';
+              status.className   = 'upload-status upload-ok';
+              preview.innerHTML  =
+                '<img src="' + data.url + '" class="upload-thumb" alt="Preview"/>';
+            } else {
+              status.textContent = '❌ ' + (data.mensagem || 'Erro no upload.');
+              status.className   = 'upload-status upload-erro';
+            }
+          })
+          .catch(function() {
+            status.textContent = '❌ Erro de conexão.';
+            status.className   = 'upload-status upload-erro';
+          });
+      }
+
+      // ── Preview ao vivo ───────────────────────────────────────────────
       function atualizarPreview() {
         var titulo    = document.getElementById('titulo').value;
         var conteudo  = document.getElementById('conteudo').value;
         var jogo      = document.getElementById('jogo').value;
         var categoria = document.getElementById('categoria').value;
         var destaque  = document.getElementById('destaque').checked;
+        var imgUrl    = document.getElementById('imagem_url').value;
         var box       = document.getElementById('preview-box');
 
         if (!titulo && !conteudo) {
-          box.innerHTML = '<div class="preview-empty">Preencha o formulário para ver o preview →</div>';
+          box.innerHTML =
+            '<div class="preview-empty">Preencha o formulário para ver o preview →</div>';
           return;
         }
 
         var hoje = new Date().toISOString().split('T')[0];
-
         var html = '<article class="noticia-detalhe preview-article">';
-
-        // Header com tags
         html += '<div class="noticia-header">';
-        if (categoria) html += '<span class="tag">' + categoria + '</span>';
-        if (jogo)      html += '<span class="tag tag-jogo">' + jogo + '</span>';
+        if (categoria) html += '<span class="tag">'       + categoria + '</span>';
+        if (jogo)      html += '<span class="tag tag-jogo">' + jogo  + '</span>';
         if (destaque)  html += '<span class="badge-destaque">⭐ Destaque</span>';
         html += '<span class="data-noticia">' + hoje + '</span>';
         html += '</div>';
-
-        // Título
-        if (titulo) html += '<h2>' + titulo + '</h2>';
-
-        // Meta
-        html += '<div class="noticia-meta">';
-        html += '<span class="meta-item">👁 0 visualizações</span>';
-        html += '<span class="meta-sep">·</span>';
-        html += '<span class="meta-item">💬 0 comentários</span>';
-        html += '</div>';
-
-        // Corpo
-        if (conteudo) {
-          html += '<div class="noticia-corpo"><p>' +
-                  conteudo.replace(/\n/g, '</p><p>') +
-                  '</p></div>';
+        if (imgUrl) {
+          html += '<img src="' + imgUrl +
+                  '" style="width:100%;border-radius:8px;margin:.8rem 0;max-height:200px;object-fit:cover"/>';
         }
-
-        html += '</article>';
+        if (titulo) html += '<h2>' + titulo + '</h2>';
+        html += '<div class="noticia-corpo"><p>' +
+                (conteudo || '').replace(/\n/g, '</p><p>') +
+                '</p></div></article>';
         box.innerHTML = html;
       }
     ]])

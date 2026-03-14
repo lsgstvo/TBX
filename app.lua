@@ -11,11 +11,11 @@ local function trim(s) return (s or ""):match("^%s*(.-)%s*$") end
 -- ─── Home ─────────────────────────────────────────────────────────────────────
 
 app:get("/", function(self)
-  self.destaques = db.get_destaques()
-  local todas    = db.get_noticias()
-  local ids_dest = {}
+  self.destaques   = db.get_destaques()
+  local todas      = db.get_noticias()
+  local ids_dest   = {}
   for _, d in ipairs(self.destaques) do ids_dest[d.id] = true end
-  local recentes = {}
+  local recentes   = {}
   for _, n in ipairs(todas) do
     if not ids_dest[n.id] then
       table.insert(recentes, n)
@@ -24,21 +24,31 @@ app:get("/", function(self)
   end
   self.noticias    = recentes
   self.mais_vistas = db.get_mais_vistas(5)
+  -- Open Graph da home
+  self.og_url      = "http://localhost:8080/"
   return { render = "index" }
 end)
+
 
 -- ─── Sobre ────────────────────────────────────────────────────────────────────
 
 app:get("/sobre", function(self)
+  self.og_titulo    = "Sobre o Portal Gamer"
+  self.og_descricao = "Conheça o Portal Gamer, feito com Lua, Lapis e SQLite."
+  self.og_url       = "http://localhost:8080/sobre"
   return { render = "sobre" }
 end)
 
 -- ─── Ranking ─────────────────────────────────────────────────────────────────
 
 app:get("/ranking", function(self)
-  self.jogos = db.get_jogos()
+  self.jogos         = db.get_jogos()
+  self.og_titulo     = "Ranking de Jogos"
+  self.og_descricao  = "Veja o ranking dos jogos mais populares do momento no Portal Gamer."
+  self.og_url        = "http://localhost:8080/ranking"
   return { render = "ranking" }
 end)
+
 
 -- ─── Detalhe de Jogo ─────────────────────────────────────────────────────────
 
@@ -46,10 +56,17 @@ app:get("/jogos/:nome", function(self)
   local nome = self.params.nome:gsub("%%20", " "):gsub("+", " ")
   local jogo = db.get_jogo_por_nome(nome)
   if not jogo then return { status = 404, render = "erro" } end
-  self.jogo     = jogo
-  self.noticias = db.get_noticias_do_jogo(nome)
+  self.jogo         = jogo
+  self.noticias     = db.get_noticias_do_jogo(nome)
+  self.og_titulo    = jogo.nome
+  self.og_descricao = jogo.descricao ~= "" and jogo.descricao
+    or ("Notícias e informações sobre " .. jogo.nome .. " no Portal Gamer.")
+  self.og_url       = "http://localhost:8080/jogos/" .. self.params.nome
+  self.og_imagem    = jogo.imagem_url ~= "" and jogo.imagem_url or nil
+  self.og_tipo      = "article"
   return { render = "jogo_detalhe" }
 end)
+
 
 -- ─── Notícias ────────────────────────────────────────────────────────────────
 
@@ -84,12 +101,18 @@ app:get("/noticias/:id", function(self)
   self.comentarios     = db.get_comentarios(self.params.id)
   self.relacionadas    = db.get_noticias_relacionadas(
                            noticia.id, noticia.jogo, noticia.categoria, 4)
-  self.jogos_populares = db.get_jogos()          -- já vem ordenado por posicao
-  self.mais_vistas     = db.get_mais_vistas(6)   -- top 6 para filtrar a atual na view
+  self.jogos_populares = db.get_jogos()
+  self.mais_vistas     = db.get_mais_vistas(6)
   self.erro_coment     = self.session.coment_erro
   self.session.coment_erro = nil
+  -- Open Graph da notícia
+  self.og_titulo    = noticia.titulo
+  self.og_descricao = noticia.conteudo:sub(1, 160)
+  self.og_url       = "http://localhost:8080/noticias/" .. noticia.id
+  self.og_tipo      = "article"
   return { render = "noticia_detalhe" }
 end)
+
 
 -- ─── POST: Enviar comentário ──────────────────────────────────────────────────
 
@@ -256,9 +279,159 @@ app:get("/api/noticias", function(self)
   return { json = { status = "ok", data = db.get_noticias() } }
 end)
 
+app:get("/api/busca", function(self)
+  local termo = trim(self.params.q or "")
+  if termo == "" then
+    return { json = { status = "ok", data = {}, total = 0 } }
+  end
+  local resultados = db.buscar_noticias(termo)
+  -- Retorna só os campos necessários para o dropdown (leve)
+  local lite = {}
+  for i = 1, math.min(8, #resultados) do
+    local n = resultados[i]
+    table.insert(lite, {
+      id        = n.id,
+      titulo    = n.titulo,
+      categoria = n.categoria,
+      jogo      = n.jogo,
+    })
+  end
+  return { json = { status = "ok", data = lite, total = #lite } }
+end)
+
+app:post("/admin/upload/imagem", function(self)
+  if not auth.require_login(self) then return end
+ 
+  -- Pega o arquivo enviado via multipart/form-data
+  local arquivo = self.params.imagem
+  if not arquivo or type(arquivo) ~= "table" then
+    return { json = { status = "erro", mensagem = "Nenhum arquivo enviado." } }
+  end
+ 
+  -- Valida tipo MIME
+  local mime = arquivo.content_type or ""
+  local tipos_validos = { ["image/jpeg"] = true, ["image/png"] = true,
+                           ["image/gif"]  = true, ["image/webp"] = true }
+  if not tipos_validos[mime] then
+    return { json = { status = "erro", mensagem = "Tipo de arquivo inválido. Use JPEG, PNG, GIF ou WebP." } }
+  end
+ 
+  -- Valida tamanho (máx. 2 MB)
+  local conteudo = arquivo.content or ""
+  if #conteudo > 2 * 1024 * 1024 then
+    return { json = { status = "erro", mensagem = "Arquivo muito grande. Máximo: 2 MB." } }
+  end
+ 
+  -- Gera nome único baseado no timestamp
+  local extensao_map = {
+    ["image/jpeg"] = ".jpg", ["image/png"]  = ".png",
+    ["image/gif"]  = ".gif", ["image/webp"] = ".webp",
+  }
+  local ext      = extensao_map[mime] or ".jpg"
+  local nome_arq = tostring(ngx.now()):gsub("%.", "") .. ext
+  local caminho  = "static/uploads/" .. nome_arq
+ 
+  -- Garante que o diretório existe
+  os.execute("mkdir -p static/uploads")
+ 
+  -- Grava o arquivo
+  local f, err = io.open(caminho, "wb")
+  if not f then
+    return { json = { status = "erro", mensagem = "Erro ao salvar arquivo: " .. (err or "") } }
+  end
+  f:write(conteudo)
+  f:close()
+ 
+  local url = "/static/uploads/" .. nome_arq
+  return { json = { status = "ok", url = url, nome = nome_arq } }
+end)
+
+app:get("/api/docs", function(self)
+  self.og_titulo    = "API — Portal Gamer"
+  self.og_descricao = "Documentação da API pública do Portal Gamer."
+  self.og_url       = "http://localhost:8080/api/docs"
+  return { render = "api_docs" }
+end)
+
+
 app:get("/api/ranking", function(self)
   return { json = { status = "ok", data = db.get_jogos() } }
 end)
+
+app:get("/api/busca", function(self)
+  local termo = trim(self.params.q or "")
+  if termo == "" then
+    return { json = { status = "ok", data = {}, total = 0 } }
+  end
+  local resultados = db.buscar_noticias(termo)
+  -- Retorna só os campos necessários para o dropdown (leve)
+  local lite = {}
+  for i = 1, math.min(8, #resultados) do
+    local n = resultados[i]
+    table.insert(lite, {
+      id        = n.id,
+      titulo    = n.titulo,
+      categoria = n.categoria,
+      jogo      = n.jogo,
+    })
+  end
+  return { json = { status = "ok", data = lite, total = #lite } }
+end)
+
+app:post("/admin/upload/imagem", function(self)
+  if not auth.require_login(self) then return end
+ 
+  -- Pega o arquivo enviado via multipart/form-data
+  local arquivo = self.params.imagem
+  if not arquivo or type(arquivo) ~= "table" then
+    return { json = { status = "erro", mensagem = "Nenhum arquivo enviado." } }
+  end
+ 
+  -- Valida tipo MIME
+  local mime = arquivo.content_type or ""
+  local tipos_validos = { ["image/jpeg"] = true, ["image/png"] = true,
+                           ["image/gif"]  = true, ["image/webp"] = true }
+  if not tipos_validos[mime] then
+    return { json = { status = "erro", mensagem = "Tipo de arquivo inválido. Use JPEG, PNG, GIF ou WebP." } }
+  end
+ 
+  -- Valida tamanho (máx. 2 MB)
+  local conteudo = arquivo.content or ""
+  if #conteudo > 2 * 1024 * 1024 then
+    return { json = { status = "erro", mensagem = "Arquivo muito grande. Máximo: 2 MB." } }
+  end
+ 
+  -- Gera nome único baseado no timestamp
+  local extensao_map = {
+    ["image/jpeg"] = ".jpg", ["image/png"]  = ".png",
+    ["image/gif"]  = ".gif", ["image/webp"] = ".webp",
+  }
+  local ext      = extensao_map[mime] or ".jpg"
+  local nome_arq = tostring(ngx.now()):gsub("%.", "") .. ext
+  local caminho  = "static/uploads/" .. nome_arq
+ 
+  -- Garante que o diretório existe
+  os.execute("mkdir -p static/uploads")
+ 
+  -- Grava o arquivo
+  local f, err = io.open(caminho, "wb")
+  if not f then
+    return { json = { status = "erro", mensagem = "Erro ao salvar arquivo: " .. (err or "") } }
+  end
+  f:write(conteudo)
+  f:close()
+ 
+  local url = "/static/uploads/" .. nome_arq
+  return { json = { status = "ok", url = url, nome = nome_arq } }
+end)
+
+app:get("/api/docs", function(self)
+  self.og_titulo    = "API — Portal Gamer"
+  self.og_descricao = "Documentação da API pública do Portal Gamer."
+  self.og_url       = "http://localhost:8080/api/docs"
+  return { render = "api_docs" }
+end)
+
 
 -- ─── Admin: Login / Logout ────────────────────────────────────────────────────
 
@@ -404,5 +577,14 @@ app:post("/admin/jogos/:id/deletar", function(self)
   db.deletar_jogo(self.params.id)
   return { redirect_to = "/admin" }
 end)
+
+app:get("/admin/api/novos-comentarios", function(self)
+  if not auth.require_login(self) then
+    return { json = { status = "erro" } }
+  end
+  local total = db.count_todos_comentarios()
+  return { json = { status = "ok", total = total } }
+end)
+
 
 return app
