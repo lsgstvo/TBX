@@ -11,21 +11,21 @@ local function trim(s) return (s or ""):match("^%s*(.-)%s*$") end
 -- ─── Home ─────────────────────────────────────────────────────────────────────
 
 app:get("/", function(self)
-  self.destaques   = db.get_destaques()
-  local todas      = db.get_noticias()
-  local ids_dest   = {}
+  self.destaques        = db.get_destaques()
+  local todas           = db.get_noticias()
+  local ids_dest        = {}
   for _, d in ipairs(self.destaques) do ids_dest[d.id] = true end
-  local recentes   = {}
+  local recentes        = {}
   for _, n in ipairs(todas) do
     if not ids_dest[n.id] then
       table.insert(recentes, n)
       if #recentes >= 5 then break end
     end
   end
-  self.noticias    = recentes
-  self.mais_vistas = db.get_mais_vistas(5)
-  -- Open Graph da home
-  self.og_url      = "http://localhost:8080/"
+  self.noticias         = recentes
+  self.mais_vistas      = db.get_mais_vistas(5)
+  self.jogos_com_noticias = db.get_jogos_com_noticias(3, 3)  -- widget home
+  self.og_url           = "http://localhost:8080/"
   return { render = "index" }
 end)
 
@@ -103,9 +103,10 @@ app:get("/noticias/:id", function(self)
                            noticia.id, noticia.jogo, noticia.categoria, 4)
   self.jogos_populares = db.get_jogos()
   self.mais_vistas     = db.get_mais_vistas(6)
+  self.tags            = db.get_tags_da_noticia(self.params.id)  -- tags da notícia
   self.erro_coment     = self.session.coment_erro
   self.session.coment_erro = nil
-  -- Open Graph da notícia
+  -- Open Graph
   self.og_titulo    = noticia.titulo
   self.og_descricao = noticia.conteudo:sub(1, 160)
   self.og_url       = "http://localhost:8080/noticias/" .. noticia.id
@@ -150,6 +151,30 @@ app:get("/categoria/:nome", function(self)
   self.total_paginas   = 1
   return { render = "noticias" }
 end)
+
+app:get("/tag/:nome", function(self)
+  local nome      = self.params.nome
+  self.noticias   = db.get_noticias_por_tag(nome)
+  self.tag        = nome
+  self.categorias = db.get_categorias()
+  self.modo_busca = false
+  self.pagina     = 1
+  self.total_paginas = 1
+  self.og_titulo    = "Tag: " .. nome
+  self.og_descricao = "Notícias com a tag " .. nome .. " no Portal Gamer."
+  self.og_url       = "http://localhost:8080/tag/" .. nome
+  return { render = "noticias" }
+end)
+
+
+app:get("/stats", function(self)
+  self.stats        = db.get_estatisticas()
+  self.og_titulo    = "Estatísticas — Portal Gamer"
+  self.og_descricao = "Números e estatísticas do Portal Gamer."
+  self.og_url       = "http://localhost:8080/stats"
+  return { render = "stats" }
+end)
+
 
 -- ─── RSS Feed ─────────────────────────────────────────────────────────────────
 
@@ -478,43 +503,86 @@ app:get("/admin/noticias/nova", function(self)
   if not auth.require_login(self) then return end
   self.jogos      = db.get_jogos()
   self.categorias = db.get_categorias()
+  self.tags_pop   = db.get_tags_populares(15)  -- sugestões de tags
   self.erro       = self.session.form_erro
   self.session.form_erro = nil
   return { render = "admin.admin_noticia_form", layout = "admin.admin_layout" }
 end)
 
+
 app:post("/admin/noticias/nova", function(self)
   if not auth.require_login(self) then return end
-  local titulo = trim(self.params.titulo); local conteudo = trim(self.params.conteudo)
+  local titulo    = trim(self.params.titulo)
+  local conteudo  = trim(self.params.conteudo)
+  local tags_str  = trim(self.params.tags or "")
+  local imagem_url = trim(self.params.imagem_url or "")
   if titulo == "" or conteudo == "" then
     self.session.form_erro = "Título e conteúdo são obrigatórios."
     return { redirect_to = "/admin/noticias/nova" }
   end
-  db.criar_noticia(titulo, conteudo, trim(self.params.jogo),
-    trim(self.params.categoria), self.params.destaque == "1")
+  local id = db.criar_noticia(titulo, conteudo, trim(self.params.jogo),
+               trim(self.params.categoria), self.params.destaque == "1")
+  -- Salva tags
+  if tags_str ~= "" then db.salvar_tags_noticia(id, tags_str) end
+  -- Salva imagem_url se veio do upload
+  if imagem_url ~= "" then
+    local conn = db.connect()
+    conn:exec(string.format(
+      "UPDATE noticias SET imagem_url = %s WHERE id = %d",
+      -- escape é local em db.lua; use a versão inline aqui:
+      "'" .. imagem_url:gsub("'","''") .. "'", tonumber(id)
+    ))
+  end
   return { redirect_to = "/admin" }
 end)
+
 
 app:get("/admin/noticias/:id/editar", function(self)
   if not auth.require_login(self) then return end
   local noticia = db.get_noticia(self.params.id)
   if not noticia then return { status = 404, render = "erro" } end
-  self.noticia = noticia; self.jogos = db.get_jogos(); self.categorias = db.get_categorias()
-  self.erro = self.session.form_erro; self.session.form_erro = nil
+  self.noticia    = noticia
+  self.jogos      = db.get_jogos()
+  self.categorias = db.get_categorias()
+  self.tags_str   = db.get_tags_string(self.params.id)   -- tags atuais como string
+  self.tags_pop   = db.get_tags_populares(15)            -- sugestões
+  self.historico  = db.get_historico(self.params.id)     -- histórico de edições
+  self.erro       = self.session.form_erro
+  self.session.form_erro = nil
   return { render = "admin.admin_noticia_editar", layout = "admin.admin_layout" }
 end)
 
+
 app:post("/admin/noticias/:id/editar", function(self)
   if not auth.require_login(self) then return end
-  local titulo = trim(self.params.titulo); local conteudo = trim(self.params.conteudo)
+  local titulo    = trim(self.params.titulo)
+  local conteudo  = trim(self.params.conteudo)
+  local tags_str  = trim(self.params.tags or "")
+  local imagem_url = trim(self.params.imagem_url or "")
   if titulo == "" or conteudo == "" then
     self.session.form_erro = "Título e conteúdo são obrigatórios."
     return { redirect_to = "/admin/noticias/" .. self.params.id .. "/editar" }
   end
-  db.editar_noticia(self.params.id, titulo, conteudo, trim(self.params.jogo),
-    trim(self.params.categoria), self.params.destaque == "1")
+  -- Salva snapshot antes de editar
+  db.salvar_historico(self.params.id)
+  db.editar_noticia(self.params.id, titulo, conteudo,
+    trim(self.params.jogo), trim(self.params.categoria),
+    self.params.destaque == "1")
+  -- Atualiza tags
+  db.salvar_tags_noticia(self.params.id, tags_str)
+  -- Atualiza imagem se veio nova
+  if imagem_url ~= "" then
+    local conn = db.connect()
+    conn:exec(string.format(
+      "UPDATE noticias SET imagem_url = '%s' WHERE id = %d",
+      imagem_url:gsub("'","''"), tonumber(self.params.id)
+    ))
+  end
+  -- Mantém só os últimos 10 snapshots
+  db.limpar_historico_antigo(self.params.id, 10)
   return { redirect_to = "/admin" }
 end)
+
 
 app:post("/admin/noticias/:id/deletar", function(self)
   if not auth.require_login(self) then return end

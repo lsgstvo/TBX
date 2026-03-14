@@ -53,6 +53,41 @@ function M.connect()
     );
   ]])
 
+-- Tags
+  db_conn:exec([[
+    CREATE TABLE IF NOT EXISTS tags (
+      id   INTEGER PRIMARY KEY AUTOINCREMENT,
+      nome TEXT    NOT NULL UNIQUE
+    );
+  ]])
+ 
+  -- Relação notícia <-> tags (many-to-many)
+  db_conn:exec([[
+    CREATE TABLE IF NOT EXISTS noticia_tags (
+      noticia_id INTEGER NOT NULL,
+      tag_id     INTEGER NOT NULL,
+      PRIMARY KEY (noticia_id, tag_id),
+      FOREIGN KEY (noticia_id) REFERENCES noticias(id) ON DELETE CASCADE,
+      FOREIGN KEY (tag_id)     REFERENCES tags(id)     ON DELETE CASCADE
+    );
+  ]])
+ 
+  -- Histórico de edições
+  db_conn:exec([[
+    CREATE TABLE IF NOT EXISTS historico_edicoes (
+      id          INTEGER PRIMARY KEY AUTOINCREMENT,
+      noticia_id  INTEGER NOT NULL,
+      titulo_ant  TEXT    NOT NULL,
+      conteudo_ant TEXT   NOT NULL,
+      editado_em  TEXT    NOT NULL DEFAULT (datetime('now')),
+      FOREIGN KEY (noticia_id) REFERENCES noticias(id) ON DELETE CASCADE
+    );
+  ]])
+
+  -- Também adicione a coluna imagem_url nas notícias:
+  db_conn:exec("ALTER TABLE noticias ADD COLUMN imagem_url TEXT NOT NULL DEFAULT ''")
+
+
   -- Migrações seguras para bancos já existentes
   db_conn:exec("ALTER TABLE noticias ADD COLUMN categoria  TEXT    NOT NULL DEFAULT 'Geral'")
   db_conn:exec("ALTER TABLE noticias ADD COLUMN destaque   INTEGER NOT NULL DEFAULT 0")
@@ -340,6 +375,210 @@ end
 function M.count_todos_comentarios()
   local r = query("SELECT COUNT(*) as total FROM comentarios")
   return r[1] and r[1].total or 0
+end
+
+-- Retorna todas as tags ordenadas por nome
+function M.get_tags()
+  return query("SELECT * FROM tags ORDER BY nome ASC")
+end
+ 
+-- Retorna as tags de uma notícia
+function M.get_tags_da_noticia(noticia_id)
+  return query(string.format([[
+    SELECT t.* FROM tags t
+    INNER JOIN noticia_tags nt ON nt.tag_id = t.id
+    WHERE nt.noticia_id = %d
+    ORDER BY t.nome ASC
+  ]], tonumber(noticia_id)))
+end
+ 
+-- Retorna notícias que têm uma tag específica
+function M.get_noticias_por_tag(tag_nome)
+  return query(string.format([[
+    SELECT n.* FROM noticias n
+    INNER JOIN noticia_tags nt ON nt.noticia_id = n.id
+    INNER JOIN tags t ON t.id = nt.tag_id
+    WHERE t.nome = %s
+    ORDER BY n.destaque DESC, n.criado_em DESC
+  ]], escape(tag_nome)))
+end
+ 
+-- Cria uma tag se ainda não existir; retorna o id
+function M.garantir_tag(nome)
+  local conn = M.connect()
+  nome = nome:match("^%s*(.-)%s*$")  -- trim
+  if nome == "" then return nil end
+  conn:exec(string.format("INSERT OR IGNORE INTO tags (nome) VALUES (%s)", escape(nome)))
+  local rows = query(string.format("SELECT id FROM tags WHERE nome = %s LIMIT 1", escape(nome)))
+  return rows[1] and rows[1].id or nil
+end
+ 
+-- Salva as tags de uma notícia (substitui todas as anteriores)
+-- tags_str: string separada por vírgulas, ex: "action,fps,ranked"
+function M.salvar_tags_noticia(noticia_id, tags_str)
+  local conn = M.connect()
+  noticia_id = tonumber(noticia_id)
+  -- Remove todas as tags antigas da notícia
+  conn:exec("DELETE FROM noticia_tags WHERE noticia_id = " .. noticia_id)
+  if not tags_str or tags_str == "" then return end
+  -- Processa cada tag
+  for tag in tags_str:gmatch("[^,]+") do
+    local nome = tag:match("^%s*(.-)%s*$"):lower()
+    if nome ~= "" then
+      local tag_id = M.garantir_tag(nome)
+      if tag_id then
+        conn:exec(string.format(
+          "INSERT OR IGNORE INTO noticia_tags (noticia_id, tag_id) VALUES (%d, %d)",
+          noticia_id, tag_id
+        ))
+      end
+    end
+  end
+end
+ 
+-- Retorna tags como string "tag1,tag2,tag3" (para preencher o input de edição)
+function M.get_tags_string(noticia_id)
+  local tags = M.get_tags_da_noticia(noticia_id)
+  local nomes = {}
+  for _, t in ipairs(tags) do table.insert(nomes, t.nome) end
+  return table.concat(nomes, ", ")
+end
+ 
+-- Tags mais usadas (para sugestões / nuvem)
+function M.get_tags_populares(limite)
+  return query(string.format([[
+    SELECT t.nome, COUNT(nt.noticia_id) as total
+    FROM tags t
+    INNER JOIN noticia_tags nt ON nt.tag_id = t.id
+    GROUP BY t.id
+    ORDER BY total DESC
+    LIMIT %d
+  ]], tonumber(limite) or 20))
+end
+ 
+-- ─── Histórico de edições ─────────────────────────────────────────────────────
+ 
+-- Salva snapshot ANTES de editar (chame antes de editar_noticia)
+function M.salvar_historico(noticia_id)
+  local conn    = M.connect()
+  local noticia = M.get_noticia(noticia_id)
+  if not noticia then return end
+  conn:exec(string.format(
+    "INSERT INTO historico_edicoes (noticia_id, titulo_ant, conteudo_ant) VALUES (%d, %s, %s)",
+    tonumber(noticia_id), escape(noticia.titulo), escape(noticia.conteudo)
+  ))
+end
+ 
+-- Retorna o histórico de uma notícia
+function M.get_historico(noticia_id)
+  return query(string.format(
+    "SELECT * FROM historico_edicoes WHERE noticia_id = %d ORDER BY editado_em DESC",
+    tonumber(noticia_id)
+  ))
+end
+ 
+-- Remove histórico antigo (mantém só os últimos N registros por notícia)
+function M.limpar_historico_antigo(noticia_id, manter)
+  local conn = M.connect()
+  manter     = tonumber(manter) or 10
+  conn:exec(string.format([[
+    DELETE FROM historico_edicoes
+    WHERE noticia_id = %d
+      AND id NOT IN (
+        SELECT id FROM historico_edicoes
+        WHERE noticia_id = %d
+        ORDER BY editado_em DESC
+        LIMIT %d
+      )
+  ]], tonumber(noticia_id), tonumber(noticia_id), manter))
+end
+ 
+-- ─── Estatísticas do portal ───────────────────────────────────────────────────
+ 
+function M.get_estatisticas()
+  local conn = M.connect()
+ 
+  local total_noticias  = query("SELECT COUNT(*) as n FROM noticias")[1].n
+  local total_jogos     = query("SELECT COUNT(*) as n FROM jogos")[1].n
+  local total_coments   = query("SELECT COUNT(*) as n FROM comentarios")[1].n
+  local total_views     = query("SELECT COALESCE(SUM(views),0) as n FROM noticias")[1].n
+  local total_tags      = query("SELECT COUNT(*) as n FROM tags")[1].n
+  local total_destaques = query("SELECT COUNT(*) as n FROM noticias WHERE destaque=1")[1].n
+ 
+  -- Notícia mais vista
+  local mais_vista = query(
+    "SELECT id, titulo, views FROM noticias ORDER BY views DESC LIMIT 1"
+  )[1]
+ 
+  -- Top 5 jogos por número de notícias
+  local top_jogos = query([[
+    SELECT jogo, COUNT(*) as total
+    FROM noticias WHERE jogo != ''
+    GROUP BY jogo ORDER BY total DESC LIMIT 5
+  ]])
+ 
+  -- Top 5 categorias por número de notícias
+  local top_categorias = query([[
+    SELECT categoria, COUNT(*) as total
+    FROM noticias
+    GROUP BY categoria ORDER BY total DESC LIMIT 5
+  ]])
+ 
+  -- Notícias por mês (últimos 6 meses)
+  local por_mes = query([[
+    SELECT strftime('%Y-%m', criado_em) as mes, COUNT(*) as total
+    FROM noticias
+    GROUP BY mes ORDER BY mes DESC LIMIT 6
+  ]])
+ 
+  -- Tags mais usadas
+  local top_tags = query([[
+    SELECT t.nome, COUNT(nt.noticia_id) as total
+    FROM tags t INNER JOIN noticia_tags nt ON nt.tag_id = t.id
+    GROUP BY t.id ORDER BY total DESC LIMIT 8
+  ]])
+ 
+  return {
+    total_noticias  = total_noticias,
+    total_jogos     = total_jogos,
+    total_coments   = total_coments,
+    total_views     = total_views,
+    total_tags      = total_tags,
+    total_destaques = total_destaques,
+    mais_vista      = mais_vista,
+    top_jogos       = top_jogos,
+    top_categorias  = top_categorias,
+    por_mes         = por_mes,
+    top_tags        = top_tags,
+  }
+end
+ 
+-- ─── Notícias por jogo (widget home) ─────────────────────────────────────────
+ 
+-- Retorna os N jogos que têm mais notícias + as últimas notícias de cada
+function M.get_jogos_com_noticias(limite_jogos, noticias_por_jogo)
+  limite_jogos       = tonumber(limite_jogos)       or 3
+  noticias_por_jogo  = tonumber(noticias_por_jogo)  or 3
+ 
+  -- Jogos com mais notícias (entre os cadastrados no ranking)
+  local jogos = query(string.format([[
+    SELECT j.nome, j.imagem_url, COUNT(n.id) as total
+    FROM jogos j
+    LEFT JOIN noticias n ON n.jogo = j.nome
+    GROUP BY j.nome
+    ORDER BY total DESC, j.posicao ASC
+    LIMIT %d
+  ]], limite_jogos))
+ 
+  -- Para cada jogo, busca as últimas notícias
+  for _, j in ipairs(jogos) do
+    j.noticias = query(string.format(
+      "SELECT id, titulo, criado_em FROM noticias WHERE jogo = %s ORDER BY criado_em DESC LIMIT %d",
+      escape(j.nome), noticias_por_jogo
+    ))
+  end
+ 
+  return jogos
 end
 
 return M

@@ -1,5 +1,4 @@
 -- views/admin/admin_noticia_form.lua
--- (igual ao anterior, mas com campo de imagem + upload via AJAX)
 local Widget = require("lapis.html").Widget
 
 return Widget:extend(function(self)
@@ -9,7 +8,6 @@ return Widget:extend(function(self)
 
     div({ class = "form-preview-layout" }, function()
 
-      -- Formulário
       div({ class = "form-col" }, function()
         form({ method  = "POST", action = "/admin/noticias/nova",
                class   = "admin-form", id = "form-noticia",
@@ -24,7 +22,7 @@ return Widget:extend(function(self)
 
           div({ class = "form-row" }, function()
             div({ class = "form-group" }, function()
-              label({ ["for"] = "jogo" }, "Jogo relacionado")
+              label({ ["for"] = "jogo" }, "Jogo")
               element("select", { id = "jogo", name = "jogo",
                                   onchange = "atualizarPreview()" }, function()
                 option({ value = "" }, "— Selecione —")
@@ -46,31 +44,51 @@ return Widget:extend(function(self)
 
           div({ class = "form-group" }, function()
             label({ ["for"] = "conteudo" }, "Conteúdo *")
-            textarea({ id = "conteudo", name = "conteudo", rows = "10",
+            textarea({ id = "conteudo", name = "conteudo", rows = "9",
                        placeholder = "Escreva o conteúdo completo...",
                        required = true, oninput = "atualizarPreview()" })
           end)
 
-          -- Campo de imagem com upload AJAX
+          -- Campo de tags com sugestões clicáveis
+          div({ class = "form-group" }, function()
+            label({ ["for"] = "tags" }, "Tags")
+            input({ type         = "text",
+                    id           = "tags",
+                    name         = "tags",
+                    placeholder  = "ex: fps, competitivo, update",
+                    autocomplete = "off" })
+            if self.tags_pop and #self.tags_pop > 0 then
+              div({ class = "tags-sugestoes" }, function()
+                span({ class = "sugestao-label" }, "Populares: ")
+                for _, t in ipairs(self.tags_pop) do
+                  button({ type    = "button",
+                           class   = "tag-sugestao",
+                           onclick = "adicionarTag('" .. t.nome .. "')" },
+                         "#" .. t.nome)
+                end
+              end)
+            end
+          end)
+
+          -- Upload de imagem
           div({ class = "form-group" }, function()
             label({}, "Imagem de Capa")
             div({ class = "upload-wrapper" }, function()
-              input({ type        = "file",
-                      id          = "upload-arquivo",
-                      accept      = "image/jpeg,image/png,image/gif,image/webp",
-                      class       = "upload-input",
-                      onchange    = "fazerUpload(this)" })
-              div({ id = "upload-status", class = "upload-status" })
+              input({ type     = "file",
+                      id       = "upload-arquivo",
+                      accept   = "image/jpeg,image/png,image/gif,image/webp",
+                      class    = "upload-input",
+                      onchange = "fazerUpload(this)" })
+              div({ id = "upload-status",  class = "upload-status" })
               div({ id = "upload-preview", class = "upload-img-preview" })
             end)
-            -- Campo hidden que recebe a URL após upload
             input({ type = "hidden", id = "imagem_url", name = "imagem_url" })
           end)
 
           div({ class = "form-check" }, function()
             input({ type = "checkbox", id = "destaque", name = "destaque",
                     value = "1", onchange = "atualizarPreview()" })
-            label({ ["for"] = "destaque" }, "⭐ Marcar como destaque na home")
+            label({ ["for"] = "destaque" }, "⭐ Destaque na home")
           end)
 
           div({ class = "form-actions" }, function()
@@ -80,7 +98,6 @@ return Widget:extend(function(self)
         end)
       end)
 
-      -- Preview ao vivo
       div({ class = "preview-col" }, function()
         div({ class = "preview-header" }, function()
           span({ class = "preview-label" }, "👁 Preview")
@@ -95,33 +112,27 @@ return Widget:extend(function(self)
 
   script(function()
     raw([[
-      // ── Upload de imagem ──────────────────────────────────────────────
       function fazerUpload(input) {
         var arquivo = input.files[0];
         if (!arquivo) return;
-
         var status  = document.getElementById('upload-status');
         var preview = document.getElementById('upload-preview');
         var hidden  = document.getElementById('imagem_url');
-
-        status.textContent  = '⏳ Enviando...';
-        status.className    = 'upload-status upload-enviando';
-        preview.innerHTML   = '';
-
+        status.textContent = '⏳ Enviando...';
+        status.className   = 'upload-status upload-enviando';
         var formData = new FormData();
         formData.append('imagem', arquivo);
-
         fetch('/admin/upload/imagem', { method: 'POST', body: formData })
           .then(function(r) { return r.json(); })
           .then(function(data) {
             if (data.status === 'ok') {
-              hidden.value       = data.url;
+              hidden.value = data.url;
               status.textContent = '✅ Upload concluído!';
               status.className   = 'upload-status upload-ok';
-              preview.innerHTML  =
-                '<img src="' + data.url + '" class="upload-thumb" alt="Preview"/>';
+              preview.innerHTML  = '<img src="' + data.url + '" class="upload-thumb"/>';
+              atualizarPreview();
             } else {
-              status.textContent = '❌ ' + (data.mensagem || 'Erro no upload.');
+              status.textContent = '❌ ' + (data.mensagem || 'Erro.');
               status.className   = 'upload-status upload-erro';
             }
           })
@@ -131,37 +142,41 @@ return Widget:extend(function(self)
           });
       }
 
-      // ── Preview ao vivo ───────────────────────────────────────────────
-      function atualizarPreview() {
-        var titulo    = document.getElementById('titulo').value;
-        var conteudo  = document.getElementById('conteudo').value;
-        var jogo      = document.getElementById('jogo').value;
-        var categoria = document.getElementById('categoria').value;
-        var destaque  = document.getElementById('destaque').checked;
-        var imgUrl    = document.getElementById('imagem_url').value;
-        var box       = document.getElementById('preview-box');
+      function adicionarTag(nome) {
+        var input = document.getElementById('tags');
+        var atual = input.value.trim();
+        var lista = atual ? atual.split(',').map(function(t){return t.trim();}) : [];
+        if (lista.indexOf(nome) === -1) {
+          lista.push(nome);
+          input.value = lista.join(', ');
+        }
+      }
 
+      function atualizarPreview() {
+        var titulo   = document.getElementById('titulo').value;
+        var conteudo = document.getElementById('conteudo').value;
+        var jogo     = document.getElementById('jogo').value;
+        var cat      = document.getElementById('categoria').value;
+        var dest     = document.getElementById('destaque').checked;
+        var imgUrl   = document.getElementById('imagem_url').value;
+        var box      = document.getElementById('preview-box');
         if (!titulo && !conteudo) {
-          box.innerHTML =
-            '<div class="preview-empty">Preencha o formulário para ver o preview →</div>';
+          box.innerHTML = '<div class="preview-empty">Preencha para ver o preview →</div>';
           return;
         }
-
         var hoje = new Date().toISOString().split('T')[0];
         var html = '<article class="noticia-detalhe preview-article">';
         html += '<div class="noticia-header">';
-        if (categoria) html += '<span class="tag">'       + categoria + '</span>';
-        if (jogo)      html += '<span class="tag tag-jogo">' + jogo  + '</span>';
-        if (destaque)  html += '<span class="badge-destaque">⭐ Destaque</span>';
+        if (cat)  html += '<span class="tag">' + cat + '</span>';
+        if (jogo) html += '<span class="tag tag-jogo">' + jogo + '</span>';
+        if (dest) html += '<span class="badge-destaque">⭐ Destaque</span>';
         html += '<span class="data-noticia">' + hoje + '</span>';
         html += '</div>';
-        if (imgUrl) {
-          html += '<img src="' + imgUrl +
-                  '" style="width:100%;border-radius:8px;margin:.8rem 0;max-height:200px;object-fit:cover"/>';
-        }
+        if (imgUrl) html += '<img src="' + imgUrl +
+          '" style="width:100%;border-radius:8px;margin:.8rem 0;max-height:180px;object-fit:cover"/>';
         if (titulo) html += '<h2>' + titulo + '</h2>';
         html += '<div class="noticia-corpo"><p>' +
-                (conteudo || '').replace(/\n/g, '</p><p>') +
+                (conteudo||'').replace(/\n/g,'</p><p>') +
                 '</p></div></article>';
         box.innerHTML = html;
       }
