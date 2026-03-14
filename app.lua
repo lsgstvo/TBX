@@ -93,20 +93,23 @@ end)
 
 -- ─── Detalhe de Notícia (com views e comentários) ─────────────────────────────
 
+-- (adiciona registrar_view_diaria e passa autor)
+ 
 app:get("/noticias/:id", function(self)
   local noticia = db.get_noticia(self.params.id)
   if not noticia then return { status = 404, render = "erro" } end
   db.incrementar_views(self.params.id)
+  db.registrar_view_diaria(self.params.id)       -- novo: view diária
   self.noticia         = noticia
+  self.autor           = noticia.autor_id and db.get_autor(noticia.autor_id) or nil
   self.comentarios     = db.get_comentarios(self.params.id)
   self.relacionadas    = db.get_noticias_relacionadas(
                            noticia.id, noticia.jogo, noticia.categoria, 4)
   self.jogos_populares = db.get_jogos()
   self.mais_vistas     = db.get_mais_vistas(6)
-  self.tags            = db.get_tags_da_noticia(self.params.id)  -- tags da notícia
+  self.tags            = db.get_tags_da_noticia(self.params.id)
   self.erro_coment     = self.session.coment_erro
   self.session.coment_erro = nil
-  -- Open Graph
   self.og_titulo    = noticia.titulo
   self.og_descricao = noticia.conteudo:sub(1, 160)
   self.og_url       = "http://localhost:8080/noticias/" .. noticia.id
@@ -151,6 +154,107 @@ app:get("/categoria/:nome", function(self)
   self.total_paginas   = 1
   return { render = "noticias" }
 end)
+
+app:get("/busca", function(self)
+  self.filtros = {
+    termo    = trim(self.params.q       or ""),
+    categoria = trim(self.params.categoria or ""),
+    jogo      = trim(self.params.jogo    or ""),
+    autor_id  = trim(self.params.autor   or ""),
+    destaque  = self.params.destaque     or "",
+    data_de   = trim(self.params.data_de  or ""),
+    data_ate  = trim(self.params.data_ate or ""),
+    ordem     = trim(self.params.ordem   or "recente"),
+  }
+  -- Só busca se tiver pelo menos um filtro preenchido
+  local tem_filtro = false
+  for _, v in pairs(self.filtros) do
+    if v ~= "" and v ~= "recente" then tem_filtro = true; break end
+  end
+  if tem_filtro then
+    self.noticias   = db.busca_avancada(self.filtros)
+    self.buscou     = true
+  end
+  self.categorias = db.get_categorias()
+  self.jogos      = db.get_jogos()
+  self.autores    = db.get_autores()
+  self.og_titulo  = "Busca Avançada"
+  self.og_url     = "http://localhost:8080/busca"
+  return { render = "busca_avancada" }
+end)
+
+app:get("/noticias/:id/pdf", function(self)
+  local noticia = db.get_noticia(self.params.id)
+  if not noticia then return { status = 404, render = "erro" } end
+  local autor = noticia.autor_id and db.get_autor(noticia.autor_id) or nil
+  local tags  = db.get_tags_da_noticia(self.params.id)
+ 
+  -- Monta lista de tags como string
+  local tags_str = ""
+  if #tags > 0 then
+    local nomes = {}
+    for _, t in ipairs(tags) do table.insert(nomes, "#" .. t.nome) end
+    tags_str = table.concat(nomes, "  ")
+  end
+ 
+  -- Gera HTML que o browser imprime como PDF via window.print()
+  local html = string.format([[<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<title>%s — Portal Gamer</title>
+<style>
+  @page { margin: 2cm; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: Georgia, serif; color: #1e293b; line-height: 1.8; font-size: 14px; }
+  .header { border-bottom: 3px solid #6366f1; padding-bottom: 16px; margin-bottom: 24px; }
+  .brand  { font-size: 13px; color: #6366f1; font-weight: bold; letter-spacing: 1px; text-transform: uppercase; }
+  h1      { font-size: 26px; font-weight: bold; margin: 10px 0 8px; color: #0f172a; line-height: 1.3; }
+  .meta   { font-size: 12px; color: #64748b; display: flex; gap: 16px; flex-wrap: wrap; margin-bottom: 8px; }
+  .tags   { font-size: 12px; color: #6366f1; margin-top: 4px; }
+  .img    { width: 100%%; max-height: 300px; object-fit: cover; border-radius: 6px; margin: 20px 0; }
+  .corpo  { margin-top: 20px; font-size: 15px; line-height: 1.9; }
+  .corpo p { margin-bottom: 14px; text-align: justify; }
+  .footer { margin-top: 40px; padding-top: 12px; border-top: 1px solid #cbd5e1;
+            font-size: 11px; color: #94a3b8; text-align: center; }
+  @media print { .no-print { display: none; } }
+</style>
+</head>
+<body>
+<div class="header">
+  <div class="brand">🎮 Portal Gamer</div>
+  <h1>%s</h1>
+  <div class="meta">
+    <span>📅 %s</span>
+    <span>🗂 %s</span>
+    %s
+    %s
+    <span>👁 %s visualizações</span>
+  </div>
+  %s
+</div>
+%s
+<div class="corpo"><p>%s</p></div>
+<div class="footer">Portal Gamer — localhost:8080 — Gerado em %s</div>
+<script class="no-print">window.onload = function(){ window.print(); }</script>
+</body></html>]],
+    noticia.titulo,
+    noticia.titulo,
+    noticia.criado_em:sub(1, 10),
+    noticia.categoria,
+    noticia.jogo ~= "" and ("<span>🎮 " .. noticia.jogo .. "</span>") or "",
+    autor and ("<span>✍️ " .. autor.nome .. "</span>") or "",
+    tostring(noticia.views or 0),
+    tags_str ~= "" and ('<div class="tags">' .. tags_str .. '</div>') or "",
+    noticia.imagem_url ~= "" and ('<img class="img" src="http://localhost:8080' .. noticia.imagem_url .. '"/>') or "",
+    noticia.conteudo:gsub("\n", "</p><p>"),
+    os.date("%d/%m/%Y %H:%M")
+  )
+ 
+  ngx.header["Content-Type"] = "text/html; charset=UTF-8"
+  return { layout = false, html }
+end)
+
 
 app:get("/tag/:nome", function(self)
   local nome      = self.params.nome
@@ -483,16 +587,22 @@ end)
 
 -- ─── Admin: Painel ───────────────────────────────────────────────────────────
 
+-- (dashboard com views por dia)
+ 
 app:get("/admin", function(self)
   if not auth.require_login(self) then return end
-  self.noticias = db.get_noticias()
-  self.jogos    = db.get_jogos()
-  local pag_coment          = tonumber(self.params.pagina_coment) or 1
-  local res_coment          = db.get_comentarios_paginado(pag_coment, 10)
-  self.comentarios          = res_coment.rows
-  self.coment_pagina        = res_coment.pagina
-  self.coment_total_pag     = res_coment.total_paginas
-  self.coment_total         = res_coment.total
+  self.noticias  = db.get_noticias()
+  self.jogos     = db.get_jogos()
+  local pag_coment        = tonumber(self.params.pagina_coment) or 1
+  local res_coment        = db.get_comentarios_paginado(pag_coment, 10)
+  self.comentarios        = res_coment.rows
+  self.coment_pagina      = res_coment.pagina
+  self.coment_total_pag   = res_coment.total_paginas
+  self.coment_total       = res_coment.total
+  -- Dashboard: views por dia (últimos 30 dias) e top notícias da semana
+  self.views_por_dia      = db.get_views_por_dia(30)
+  self.top_semana         = db.get_top_noticias_views(7, 5)
+  self.autores            = db.get_autores()
   return { render = "admin.admin_painel", layout = "admin.admin_layout" }
 end)
 
@@ -503,38 +613,41 @@ app:get("/admin/noticias/nova", function(self)
   if not auth.require_login(self) then return end
   self.jogos      = db.get_jogos()
   self.categorias = db.get_categorias()
-  self.tags_pop   = db.get_tags_populares(15)  -- sugestões de tags
+  self.tags_pop   = db.get_tags_populares(15)
+  self.autores    = db.get_autores()         -- novo: lista de autores
   self.erro       = self.session.form_erro
   self.session.form_erro = nil
   return { render = "admin.admin_noticia_form", layout = "admin.admin_layout" }
 end)
 
 
+
 app:post("/admin/noticias/nova", function(self)
   if not auth.require_login(self) then return end
-  local titulo    = trim(self.params.titulo)
-  local conteudo  = trim(self.params.conteudo)
-  local tags_str  = trim(self.params.tags or "")
+  local titulo     = trim(self.params.titulo)
+  local conteudo   = trim(self.params.conteudo)
+  local tags_str   = trim(self.params.tags or "")
   local imagem_url = trim(self.params.imagem_url or "")
+  local autor_id   = tonumber(self.params.autor_id) or nil
   if titulo == "" or conteudo == "" then
     self.session.form_erro = "Título e conteúdo são obrigatórios."
     return { redirect_to = "/admin/noticias/nova" }
   end
   local id = db.criar_noticia(titulo, conteudo, trim(self.params.jogo),
                trim(self.params.categoria), self.params.destaque == "1")
-  -- Salva tags
   if tags_str ~= "" then db.salvar_tags_noticia(id, tags_str) end
-  -- Salva imagem_url se veio do upload
-  if imagem_url ~= "" then
-    local conn = db.connect()
+  local conn = db.connect()
+  if imagem_url ~= "" or autor_id then
     conn:exec(string.format(
-      "UPDATE noticias SET imagem_url = %s WHERE id = %d",
-      -- escape é local em db.lua; use a versão inline aqui:
-      "'" .. imagem_url:gsub("'","''") .. "'", tonumber(id)
+      "UPDATE noticias SET imagem_url='%s', autor_id=%s WHERE id=%d",
+      imagem_url:gsub("'","''"),
+      autor_id and tostring(autor_id) or "NULL",
+      tonumber(id)
     ))
   end
   return { redirect_to = "/admin" }
 end)
+
 
 
 app:get("/admin/noticias/:id/editar", function(self)
@@ -555,30 +668,27 @@ end)
 
 app:post("/admin/noticias/:id/editar", function(self)
   if not auth.require_login(self) then return end
-  local titulo    = trim(self.params.titulo)
-  local conteudo  = trim(self.params.conteudo)
-  local tags_str  = trim(self.params.tags or "")
+  local titulo     = trim(self.params.titulo)
+  local conteudo   = trim(self.params.conteudo)
+  local tags_str   = trim(self.params.tags or "")
   local imagem_url = trim(self.params.imagem_url or "")
+  local autor_id   = tonumber(self.params.autor_id) or nil
   if titulo == "" or conteudo == "" then
     self.session.form_erro = "Título e conteúdo são obrigatórios."
     return { redirect_to = "/admin/noticias/" .. self.params.id .. "/editar" }
   end
-  -- Salva snapshot antes de editar
   db.salvar_historico(self.params.id)
   db.editar_noticia(self.params.id, titulo, conteudo,
     trim(self.params.jogo), trim(self.params.categoria),
     self.params.destaque == "1")
-  -- Atualiza tags
   db.salvar_tags_noticia(self.params.id, tags_str)
-  -- Atualiza imagem se veio nova
-  if imagem_url ~= "" then
-    local conn = db.connect()
-    conn:exec(string.format(
-      "UPDATE noticias SET imagem_url = '%s' WHERE id = %d",
-      imagem_url:gsub("'","''"), tonumber(self.params.id)
-    ))
-  end
-  -- Mantém só os últimos 10 snapshots
+  local conn = db.connect()
+  conn:exec(string.format(
+    "UPDATE noticias SET imagem_url='%s', autor_id=%s WHERE id=%d",
+    imagem_url:gsub("'","''"),
+    autor_id and tostring(autor_id) or "NULL",
+    tonumber(self.params.id)
+  ))
   db.limpar_historico_antigo(self.params.id, 10)
   return { redirect_to = "/admin" }
 end)
@@ -653,6 +763,89 @@ app:get("/admin/api/novos-comentarios", function(self)
   local total = db.count_todos_comentarios()
   return { json = { status = "ok", total = total } }
 end)
+
+app:get("/admin/autores", function(self)
+  if not auth.require_login(self) then return end
+  self.autores = db.get_autores()
+  return { render = "admin.admin_autores", layout = "admin.admin_layout" }
+end)
+ 
+app:get("/admin/autores/novo", function(self)
+  if not auth.require_login(self) then return end
+  self.erro = self.session.form_erro; self.session.form_erro = nil
+  return { render = "admin.admin_autor_form", layout = "admin.admin_layout" }
+end)
+ 
+app:post("/admin/autores/novo", function(self)
+  if not auth.require_login(self) then return end
+  local nome = trim(self.params.nome)
+  if nome == "" then
+    self.session.form_erro = "Nome é obrigatório."
+    return { redirect_to = "/admin/autores/novo" }
+  end
+  db.criar_autor(nome, trim(self.params.bio), trim(self.params.avatar_url))
+  return { redirect_to = "/admin/autores" }
+end)
+ 
+app:get("/admin/autores/:id/editar", function(self)
+  if not auth.require_login(self) then return end
+  local autor = db.get_autor(self.params.id)
+  if not autor then return { status = 404, render = "erro" } end
+  self.autor = autor
+  self.erro  = self.session.form_erro; self.session.form_erro = nil
+  return { render = "admin.admin_autor_editar", layout = "admin.admin_layout" }
+end)
+ 
+app:post("/admin/autores/:id/editar", function(self)
+  if not auth.require_login(self) then return end
+  local nome = trim(self.params.nome)
+  if nome == "" then
+    self.session.form_erro = "Nome é obrigatório."
+    return { redirect_to = "/admin/autores/" .. self.params.id .. "/editar" }
+  end
+  db.editar_autor(self.params.id, nome, trim(self.params.bio), trim(self.params.avatar_url))
+  return { redirect_to = "/admin/autores" }
+end)
+ 
+app:post("/admin/autores/:id/deletar", function(self)
+  if not auth.require_login(self) then return end
+  db.deletar_autor(self.params.id)
+  return { redirect_to = "/admin/autores" }
+end)
+ 
+-- Página pública de um autor
+app:get("/autor/:id", function(self)
+  local autor = db.get_autor(self.params.id)
+  if not autor then return { status = 404, render = "erro" } end
+  self.autor    = autor
+  self.noticias = db.get_noticias_do_autor(self.params.id)
+  self.og_titulo    = autor.nome .. " — Portal Gamer"
+  self.og_descricao = autor.bio ~= "" and autor.bio or "Notícias de " .. autor.nome
+  self.og_url       = "http://localhost:8080/autor/" .. self.params.id
+  return { render = "autor" }
+end)
+
+app:post("/jogos/:nome/avaliar", function(self)
+  local nome = self.params.nome:gsub("%%20", " "):gsub("+", " ")
+  local jogo = db.get_jogo_por_nome(nome)
+  if not jogo then return { json = { status = "erro", mensagem = "Jogo não encontrado." } } end
+ 
+  local nota = tonumber(self.params.nota)
+  local ip   = ngx.var.remote_addr or "0.0.0.0"
+ 
+  local ok = db.avaliar_jogo(jogo.id, nota, ip)
+  if not ok then
+    return { json = { status = "erro", mensagem = "Nota inválida." } }
+  end
+ 
+  local aval = db.get_avaliacao_jogo(jogo.id)
+  return { json = {
+    status = "ok",
+    media  = aval.media,
+    total  = aval.total,
+  }}
+end)
+
 
 
 return app

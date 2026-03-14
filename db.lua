@@ -87,6 +87,45 @@ function M.connect()
   -- Também adicione a coluna imagem_url nas notícias:
   db_conn:exec("ALTER TABLE noticias ADD COLUMN imagem_url TEXT NOT NULL DEFAULT ''")
 
+  -- Autores
+  db_conn:exec([[
+    CREATE TABLE IF NOT EXISTS autores (
+      id         INTEGER PRIMARY KEY AUTOINCREMENT,
+      nome       TEXT    NOT NULL,
+      bio        TEXT    NOT NULL DEFAULT '',
+      avatar_url TEXT    NOT NULL DEFAULT '',
+      criado_em  TEXT    NOT NULL DEFAULT (datetime('now'))
+    );
+  ]])
+ 
+  -- Migração: coluna autor_id nas notícias
+  db_conn:exec("ALTER TABLE noticias ADD COLUMN autor_id INTEGER REFERENCES autores(id)")
+ 
+  -- Avaliações dos jogos (1 avaliação por IP por jogo)
+  db_conn:exec([[
+    CREATE TABLE IF NOT EXISTS avaliacoes (
+      id         INTEGER PRIMARY KEY AUTOINCREMENT,
+      jogo_id    INTEGER NOT NULL,
+      nota       INTEGER NOT NULL CHECK(nota BETWEEN 1 AND 5),
+      ip         TEXT    NOT NULL DEFAULT '',
+      criado_em  TEXT    NOT NULL DEFAULT (datetime('now')),
+      UNIQUE(jogo_id, ip),
+      FOREIGN KEY (jogo_id) REFERENCES jogos(id) ON DELETE CASCADE
+    );
+  ]])
+ 
+  -- Registro diário de views por notícia (para o gráfico do dashboard)
+  db_conn:exec([[
+    CREATE TABLE IF NOT EXISTS views_diarias (
+      id         INTEGER PRIMARY KEY AUTOINCREMENT,
+      noticia_id INTEGER NOT NULL,
+      data       TEXT    NOT NULL,
+      total      INTEGER NOT NULL DEFAULT 0,
+      UNIQUE(noticia_id, data),
+      FOREIGN KEY (noticia_id) REFERENCES noticias(id) ON DELETE CASCADE
+    );
+  ]])
+
 
   -- Migrações seguras para bancos já existentes
   db_conn:exec("ALTER TABLE noticias ADD COLUMN categoria  TEXT    NOT NULL DEFAULT 'Geral'")
@@ -579,6 +618,208 @@ function M.get_jogos_com_noticias(limite_jogos, noticias_por_jogo)
   end
  
   return jogos
+end
+
+-- Contém: autores, avaliações de jogos, views por dia, busca avançada
+ 
+
+ 
+-- ─── Autores ─────────────────────────────────────────────────────────────────
+ 
+function M.get_autores()
+  return query("SELECT * FROM autores ORDER BY nome ASC")
+end
+ 
+function M.get_autor(id)
+  local rows = query("SELECT * FROM autores WHERE id = " .. tonumber(id))
+  return rows[1]
+end
+ 
+function M.criar_autor(nome, bio, avatar_url)
+  local conn = M.connect()
+  conn:exec(string.format(
+    "INSERT INTO autores (nome, bio, avatar_url) VALUES (%s, %s, %s)",
+    escape(nome), escape(bio or ""), escape(avatar_url or "")
+  ))
+  return conn:last_insert_rowid()
+end
+ 
+function M.editar_autor(id, nome, bio, avatar_url)
+  local conn = M.connect()
+  conn:exec(string.format(
+    "UPDATE autores SET nome=%s, bio=%s, avatar_url=%s WHERE id=%d",
+    escape(nome), escape(bio or ""), escape(avatar_url or ""), tonumber(id)
+  ))
+end
+ 
+function M.deletar_autor(id)
+  local conn = M.connect()
+  conn:exec("DELETE FROM autores WHERE id = " .. tonumber(id))
+end
+ 
+-- Notícias de um autor específico
+function M.get_noticias_do_autor(autor_id)
+  return query(string.format(
+    "SELECT * FROM noticias WHERE autor_id = %d ORDER BY criado_em DESC",
+    tonumber(autor_id)
+  ))
+end
+ 
+-- ─── Views diárias ───────────────────────────────────────────────────────────
+ 
+-- Chame isso em vez de (ou junto com) incrementar_views
+function M.registrar_view_diaria(noticia_id)
+  local conn = M.connect()
+  local hoje = os.date("%Y-%m-%d")
+  -- INSERT OR IGNORE cria o registro; UPDATE incrementa
+  conn:exec(string.format(
+    "INSERT OR IGNORE INTO views_diarias (noticia_id, data, total) VALUES (%d, '%s', 0)",
+    tonumber(noticia_id), hoje
+  ))
+  conn:exec(string.format(
+    "UPDATE views_diarias SET total = total + 1 WHERE noticia_id = %d AND data = '%s'",
+    tonumber(noticia_id), hoje
+  ))
+end
+ 
+-- Views totais por dia (últimos N dias) — para o gráfico do dashboard
+function M.get_views_por_dia(dias)
+  dias = tonumber(dias) or 30
+  return query(string.format([[
+    SELECT data, SUM(total) as total
+    FROM views_diarias
+    WHERE data >= date('now', '-%d days')
+    GROUP BY data
+    ORDER BY data ASC
+  ]], dias))
+end
+ 
+-- Views por notícia nos últimos N dias
+function M.get_top_noticias_views(dias, limite)
+  dias   = tonumber(dias)   or 7
+  limite = tonumber(limite) or 5
+  return query(string.format([[
+    SELECT n.id, n.titulo, SUM(v.total) as views_periodo
+    FROM views_diarias v
+    JOIN noticias n ON n.id = v.noticia_id
+    WHERE v.data >= date('now', '-%d days')
+    GROUP BY n.id
+    ORDER BY views_periodo DESC
+    LIMIT %d
+  ]], dias, limite))
+end
+ 
+-- ─── Avaliações de jogos ─────────────────────────────────────────────────────
+ 
+-- Retorna nota média e total de avaliações de um jogo
+function M.get_avaliacao_jogo(jogo_id)
+  local rows = query(string.format([[
+    SELECT
+      ROUND(AVG(nota), 1) as media,
+      COUNT(*) as total
+    FROM avaliacoes
+    WHERE jogo_id = %d
+  ]], tonumber(jogo_id)))
+  return rows[1] or { media = 0, total = 0 }
+end
+ 
+-- Verifica se um IP já avaliou este jogo
+function M.ip_ja_avaliou(jogo_id, ip)
+  local rows = query(string.format(
+    "SELECT id FROM avaliacoes WHERE jogo_id = %d AND ip = %s LIMIT 1",
+    tonumber(jogo_id), escape(ip)
+  ))
+  return #rows > 0
+end
+ 
+-- Salva ou atualiza avaliação (INSERT OR REPLACE)
+function M.avaliar_jogo(jogo_id, nota, ip)
+  nota = tonumber(nota)
+  if not nota or nota < 1 or nota > 5 then return false end
+  local conn = M.connect()
+  conn:exec(string.format(
+    "INSERT OR REPLACE INTO avaliacoes (jogo_id, nota, ip) VALUES (%d, %d, %s)",
+    tonumber(jogo_id), nota, escape(ip)
+  ))
+  return true
+end
+ 
+-- Distribuição das notas de um jogo (para o breakdown visual)
+function M.get_distribuicao_notas(jogo_id)
+  return query(string.format([[
+    SELECT nota, COUNT(*) as total
+    FROM avaliacoes WHERE jogo_id = %d
+    GROUP BY nota ORDER BY nota DESC
+  ]], tonumber(jogo_id)))
+end
+ 
+-- Média de todos os jogos (para o ranking)
+function M.get_medias_jogos()
+  return query([[
+    SELECT j.id, j.nome,
+      ROUND(AVG(a.nota), 1) as media,
+      COUNT(a.id) as total_avals
+    FROM jogos j
+    LEFT JOIN avaliacoes a ON a.jogo_id = j.id
+    GROUP BY j.id
+    ORDER BY j.posicao ASC
+  ]])
+end
+ 
+-- ─── Busca avançada ───────────────────────────────────────────────────────────
+ 
+-- Filtros: termo, categoria, jogo, autor_id, destaque, data_de, data_ate, ordem
+function M.busca_avancada(filtros)
+  local wheres = {}
+  local f = filtros or {}
+ 
+  if f.termo and f.termo ~= "" then
+    local t = escape("%" .. f.termo .. "%")
+    table.insert(wheres, string.format(
+      "(n.titulo LIKE %s OR n.conteudo LIKE %s)", t, t
+    ))
+  end
+  if f.categoria and f.categoria ~= "" then
+    table.insert(wheres, string.format("n.categoria = %s", escape(f.categoria)))
+  end
+  if f.jogo and f.jogo ~= "" then
+    table.insert(wheres, string.format("n.jogo = %s", escape(f.jogo)))
+  end
+  if f.autor_id and f.autor_id ~= "" then
+    table.insert(wheres, string.format("n.autor_id = %d", tonumber(f.autor_id)))
+  end
+  if f.destaque == "1" then
+    table.insert(wheres, "n.destaque = 1")
+  end
+  if f.data_de and f.data_de ~= "" then
+    table.insert(wheres, string.format("n.criado_em >= %s", escape(f.data_de)))
+  end
+  if f.data_ate and f.data_ate ~= "" then
+    table.insert(wheres, string.format("n.criado_em <= %s", escape(f.data_ate .. " 23:59:59")))
+  end
+ 
+  local where_sql = #wheres > 0
+    and ("WHERE " .. table.concat(wheres, " AND "))
+    or ""
+ 
+  local ordem_map = {
+    recente  = "n.criado_em DESC",
+    antigo   = "n.criado_em ASC",
+    views    = "n.views DESC",
+    titulo   = "n.titulo ASC",
+  }
+  local ordem = ordem_map[f.ordem or "recente"] or "n.criado_em DESC"
+ 
+  -- Sempre traz autor junto
+  local sql = string.format([[
+    SELECT n.*, a.nome as autor_nome, a.avatar_url as autor_avatar
+    FROM noticias n
+    LEFT JOIN autores a ON a.id = n.autor_id
+    %s
+    ORDER BY n.destaque DESC, %s
+  ]], where_sql, ordem)
+ 
+  return query(sql)
 end
 
 return M

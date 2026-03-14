@@ -29,13 +29,15 @@ return Widget:extend(function(self)
           li(function() a({ href = "/admin" },               "📋 Painel") end)
           li(function() a({ href = "/admin/noticias/nova" }, "➕ Nova Notícia") end)
           li(function() a({ href = "/admin/jogos/novo" },    "🎮 Novo Jogo") end)
+          li(function() a({ href = "/admin/autores" },       "✍️ Autores") end)
           li(function()
-            -- Link de comentários com badge de notificação
             a({ href = "/admin#comentarios", id = "link-comentarios" }, function()
               raw('💬 Comentários <span id="badge-coment" class="badge-notif" style="display:none">0</span>')
             end)
           end)
           li(function() a({ href = "/api/docs" },            "📖 API Docs") end)
+          li(function() a({ href = "/busca" },               "🔍 Busca Avançada") end)
+          li(function() a({ href = "/stats" },               "📊 Estatísticas") end)
           li(function() a({ href = "/" },                    "🌐 Ver site") end)
           li(function()
             a({ href = "/admin/logout", class = "logout-link" }, "🚪 Sair")
@@ -57,7 +59,6 @@ return Widget:extend(function(self)
 
       script(function()
         raw([[
-          // ── Toggle de tema ──────────────────────────────────────────
           (function() {
             var tema = localStorage.getItem('tema') || 'dark';
             var btn  = document.getElementById('tema-toggle');
@@ -75,49 +76,39 @@ return Widget:extend(function(self)
               novo === 'dark' ? '\u2600\uFE0F Alternar Tema' : '\uD83C\uDF19 Alternar Tema';
           }
 
-          // ── Notificação de novos comentários ────────────────────────
           (function() {
-            var CHAVE      = 'admin_coment_visto';
-            var badge      = document.getElementById('badge-coment');
+            var CHAVE = 'admin_coment_visto';
+            var badge = document.getElementById('badge-coment');
             if (!badge) return;
-
-            function checarComentarios() {
+            function checar() {
               fetch('/admin/api/novos-comentarios')
-                .then(function(r) { return r.json(); })
+                .then(function(r){ return r.json(); })
                 .then(function(data) {
                   if (data.status !== 'ok') return;
-                  var totalAtual  = data.total;
-                  var totalVisto  = parseInt(localStorage.getItem(CHAVE) || '0', 10);
-                  var novos       = totalAtual - totalVisto;
-
+                  var novos = data.total - parseInt(localStorage.getItem(CHAVE)||'0', 10);
                   if (novos > 0) {
                     badge.textContent = novos > 99 ? '99+' : String(novos);
                     badge.style.display = 'inline-flex';
                   } else {
                     badge.style.display = 'none';
                   }
-                })
-                .catch(function() {});
+                }).catch(function(){});
             }
-
-            // Marca como visto ao clicar no link
             var link = document.getElementById('link-comentarios');
             if (link) {
               link.addEventListener('click', function() {
                 fetch('/admin/api/novos-comentarios')
-                  .then(function(r) { return r.json(); })
+                  .then(function(r){ return r.json(); })
                   .then(function(data) {
-                    if (data.status === 'ok') {
+                    if (data.status==='ok') {
                       localStorage.setItem(CHAVE, String(data.total));
                       badge.style.display = 'none';
                     }
                   });
               });
             }
-
-            checarComentarios();
-            // Verifica a cada 60 segundos
-            setInterval(checarComentarios, 60000);
+            checar();
+            setInterval(checar, 60000);
           })();
         ]])
       end)

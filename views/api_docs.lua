@@ -1,23 +1,23 @@
 -- views/api_docs.lua
 local Widget = require("lapis.html").Widget
 
--- Helper: renderiza um bloco de endpoint
-local function endpoint(metodo, rota, descricao, exemplo_resp)
-  return div({ class = "doc-endpoint" }, function()
-    div({ class = "doc-header" }, function()
-      span({ class = "doc-metodo doc-" .. metodo:lower() }, metodo)
-      code({ class = "doc-rota" }, rota)
-    end)
-    p({ class = "doc-desc" }, descricao)
-    if exemplo_resp then
-      div({ class = "doc-exemplo" }, function()
-        pre({ class = "doc-code" }, exemplo_resp)
-      end)
-    end
-  end)
-end
-
 return Widget:extend(function(self)
+  -- Helper: renderiza um bloco de endpoint
+  local function endpoint(metodo, rota, descricao, exemplo_resp)
+    div({ class = "doc-endpoint" }, function()
+      div({ class = "doc-header" }, function()
+        span({ class = "doc-metodo doc-" .. metodo:lower() }, metodo)
+        code({ class = "doc-rota" }, rota)
+      end)
+      p({ class = "doc-desc" }, descricao)
+      if exemplo_resp then
+        div({ class = "doc-exemplo" }, function()
+          pre({ class = "doc-code" }, exemplo_resp)
+        end)
+      end
+    end)
+  end
+
   div({ class = "shadow-card doc-hero" }, function()
     h2("📖 API Pública — Portal Gamer")
     p("API REST simples, somente leitura, sem autenticação. Todas as respostas são em JSON (UTF-8).")
