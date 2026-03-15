@@ -107,6 +107,26 @@ body {
   color: white;
 }
 
+/* Botão de perfil — destaque no nav */
+.nav-perfil-btn {
+  background: rgba(99, 102, 241, .12) !important;
+  border: 1px solid rgba(99, 102, 241, .35) !important;
+  color: var(--primary-color) !important;
+  border-radius: 99px !important;
+  padding: .35rem .85rem !important;
+  font-weight: 700 !important;
+  letter-spacing: .01em;
+  transition: all .2s !important;
+}
+
+.nav-perfil-btn:hover {
+  background: var(--primary-color) !important;
+  border-color: var(--primary-color) !important;
+  color: white !important;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(99, 102, 241, .35);
+}
+
 .rss-link {
   color: var(--accent-color) !important;
 }
@@ -3082,7 +3102,7 @@ a.lancamento-nome:hover {
 .curtida-proporcao {
   flex: 1;
   height: 6px;
-  background: linear-gradient(90deg, rgba(244,63,94,.5), rgba(244,63,94,.3));
+  background: linear-gradient(90deg, rgba(244, 63, 94, .5), rgba(244, 63, 94, .3));
   border-radius: 99px;
   overflow: hidden;
   position: relative;
@@ -3215,5 +3235,517 @@ a.lancamento-nome:hover {
 
   .curtida-proporcao {
     display: none;
+  }
+}
+
+/* ── Perfil do Leitor ────────────────────────────────────────────────────── */
+
+.perfil-avatar-wrapper {
+  display: flex;
+  gap: 1.5rem;
+  align-items: flex-start;
+  flex-wrap: wrap;
+}
+
+.perfil-avatar {
+  width: 80px;
+  height: 80px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: rgba(99, 102, 241, .15);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 2.2rem;
+  border: 2px solid var(--border-color);
+}
+
+.perfil-info {
+  flex: 1;
+}
+
+.perfil-info h2 {
+  margin-bottom: .3rem;
+}
+
+.perfil-id {
+  font-size: .78rem;
+  color: var(--text-muted);
+  font-family: monospace;
+  margin-bottom: .8rem;
+}
+
+.perfil-stats-row {
+  display: flex;
+  gap: 1.5rem;
+}
+
+.perfil-stat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.perfil-stat-num {
+  font-size: 1.6rem;
+  font-weight: 800;
+  color: var(--primary-color);
+}
+
+.perfil-stat-lab {
+  font-size: .75rem;
+  color: var(--text-muted);
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.perfil-prefs {
+  margin-top: 1rem;
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+  flex-wrap: wrap;
+}
+
+.perfil-pref-label {
+  font-size: .85rem;
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+.perfil-conquistas {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .6rem;
+  margin-top: .8rem;
+}
+
+.conquista-mini {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: .2rem;
+  padding: .7rem .9rem;
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  min-width: 80px;
+  transition: transform .15s;
+}
+
+.conquista-mini:hover {
+  transform: scale(1.05);
+}
+
+.conquista-mini-ico {
+  font-size: 1.4rem;
+}
+
+.conquista-mini-nome {
+  font-size: .72rem;
+  font-weight: 600;
+  text-align: center;
+  color: var(--text-muted);
+}
+
+.section-header-simple {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1rem;
+}
+
+/* ── Enquetes ────────────────────────────────────────────────────────────── */
+
+.enquete-wrapper {
+  margin-top: .8rem;
+}
+
+.enquete-opcoes {
+  display: flex;
+  flex-direction: column;
+  gap: .6rem;
+}
+
+.enquete-opcao {
+  width: 100%;
+  text-align: left;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  overflow: hidden;
+  cursor: pointer;
+  background: none;
+  font-family: inherit;
+  transition: border-color .2s;
+  position: relative;
+}
+
+.enquete-opcao:hover {
+  border-color: var(--primary-color);
+}
+
+.enquete-opcao:disabled {
+  cursor: default;
+  opacity: .8;
+}
+
+.enquete-barra-bg {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: transparent;
+}
+
+.enquete-barra-fill {
+  height: 100%;
+  background: rgba(99, 102, 241, .12);
+  transition: width .5s;
+}
+
+.enquete-opcao-content {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: .7rem 1rem;
+}
+
+.enquete-opcao-texto {
+  font-size: .9rem;
+  font-weight: 600;
+}
+
+.enquete-opcao-pct {
+  font-size: .8rem;
+  color: var(--text-muted);
+}
+
+.enquete-total {
+  font-size: .8rem;
+  color: var(--text-muted);
+  margin-top: .6rem;
+  text-align: right;
+}
+
+/* Enquete admin: campo de opções */
+.opcao-input-wrapper {
+  display: flex;
+  align-items: center;
+  gap: .6rem;
+  margin-bottom: .5rem;
+}
+
+.opcao-num {
+  font-weight: 700;
+  color: var(--text-muted);
+  min-width: 1.2rem;
+}
+
+/* ── Você Também Pode Gostar ─────────────────────────────────────────────── */
+
+.vpg-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 1rem;
+  margin-top: .8rem;
+}
+
+.vpg-card {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  overflow: hidden;
+  text-decoration: none;
+  transition: border-color .2s, transform .2s;
+}
+
+.vpg-card:hover {
+  border-color: var(--primary-color);
+  transform: translateY(-2px);
+}
+
+.vpg-img {
+  width: 100%;
+  height: 100px;
+  object-fit: cover;
+  display: block;
+}
+
+.vpg-placeholder {
+  width: 100%;
+  height: 100px;
+  background: rgba(99, 102, 241, .1);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.8rem;
+  font-weight: 800;
+  color: var(--primary-color);
+}
+
+.vpg-info {
+  padding: .7rem;
+  display: flex;
+  flex-direction: column;
+  gap: .3rem;
+}
+
+.vpg-meta {
+  display: flex;
+  align-items: center;
+  gap: .4rem;
+  flex-wrap: wrap;
+}
+
+.vpg-tags-badge {
+  font-size: .68rem;
+  background: rgba(245, 158, 11, .15);
+  color: var(--gold-color);
+  padding: .1rem .4rem;
+  border-radius: 99px;
+  font-weight: 600;
+}
+
+.vpg-titulo {
+  font-size: .85rem;
+  font-weight: 600;
+  color: var(--text-color);
+  line-height: 1.3;
+}
+
+.vpg-views {
+  font-size: .75rem;
+  color: var(--text-muted);
+}
+
+/* ── Comparação de Jogos ─────────────────────────────────────────────────── */
+.comparar-desc {
+  color: var(--text-muted);
+  margin-top: .4rem;
+}
+
+.comparar-form {
+  margin-top: 1.2rem;
+}
+
+.comparar-vs {
+  display: flex;
+  align-items: flex-end;
+  padding-bottom: 1rem;
+}
+
+.comparar-vs span {
+  font-size: 1.4rem;
+  font-weight: 800;
+  color: var(--text-muted);
+  padding: 0 .5rem;
+}
+
+
+.comp-headers {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  gap: 1rem;
+  align-items: center;
+  margin-bottom: 2rem;
+}
+
+.comp-jogo {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: .6rem;
+  text-align: center;
+}
+
+.comp-jogo-a h3 {
+  color: var(--primary-color);
+}
+
+.comp-jogo-b h3 {
+  color: var(--gold-color);
+}
+
+.comp-capa {
+  width: 120px;
+  height: 80px;
+  object-fit: cover;
+  border-radius: 8px;
+  border: 1px solid var(--border-color);
+}
+
+.comp-capa-placeholder {
+  width: 120px;
+  height: 80px;
+  border-radius: 8px;
+  background: rgba(99, 102, 241, .1);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 2rem;
+  font-weight: 800;
+  color: var(--primary-color);
+}
+
+.comp-meta {
+  display: flex;
+  gap: .5rem;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+.comp-vs-badge {
+  background: var(--surface-color);
+  border: 2px solid var(--border-color);
+  border-radius: 50%;
+  width: 48px;
+  height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 800;
+  font-size: .9rem;
+  color: var(--text-muted);
+}
+
+
+.comp-secao-titulo {
+  font-size: 1rem;
+  margin-bottom: 1rem;
+  color: var(--text-muted);
+}
+
+.comp-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: .7rem 0;
+  border-bottom: 1px solid var(--border-color);
+  flex-wrap: wrap;
+  gap: .5rem;
+}
+
+.comp-item:last-child {
+  border-bottom: none;
+}
+
+.comp-item-label {
+  font-size: .88rem;
+  color: var(--text-muted);
+  font-weight: 600;
+  min-width: 160px;
+}
+
+.comp-item-vals {
+  display: flex;
+  align-items: center;
+  gap: .8rem;
+}
+
+.comp-iv {
+  font-size: .9rem;
+  font-weight: 600;
+}
+
+.comp-winner {
+  color: var(--gold-color);
+}
+
+.comp-sep {
+  color: var(--border-color);
+}
+
+.comp-row {
+  display: flex;
+  align-items: center;
+  gap: .6rem;
+  padding: .5rem 0;
+}
+
+.comp-val {
+  font-size: .85rem;
+  font-weight: 700;
+  min-width: 60px;
+}
+
+.comp-val-a {
+  color: var(--primary-color);
+  text-align: right;
+}
+
+.comp-val-b {
+  color: var(--gold-color);
+}
+
+.comp-barra-wrapper {
+  flex: 1;
+  height: 8px;
+  border-radius: 99px;
+  overflow: hidden;
+  background: var(--border-color);
+  display: flex;
+}
+
+.comp-barra-a {
+  background: var(--primary-color);
+  height: 100%;
+  transition: width .5s;
+}
+
+.comp-barra-b {
+  background: var(--gold-color);
+  height: 100%;
+  transition: width .5s;
+}
+
+.comp-label {
+  font-size: .78rem;
+  color: var(--text-muted);
+  text-align: center;
+  margin-top: -.2rem;
+}
+
+.comp-acoes {
+  display: flex;
+  gap: 1rem;
+  justify-content: center;
+  margin-top: 1.5rem;
+  flex-wrap: wrap;
+}
+
+/* ── Performance Admin ───────────────────────────────────────────────────── */
+.perf-header-acoes {
+  display: flex;
+  align-items: center;
+  gap: .8rem;
+  flex-wrap: wrap;
+}
+
+.perf-chart-section {
+  margin-bottom: 1.5rem;
+}
+
+.perf-bars {
+  height: 100px;
+}
+
+@media (max-width: 768px) {
+  .vpg-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .comp-headers {
+    grid-template-columns: 1fr;
+  }
+
+  .comp-vs-badge {
+    display: none;
+  }
+
+  .perfil-stats-row {
+    gap: 1rem;
   }
 }

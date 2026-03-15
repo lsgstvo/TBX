@@ -211,6 +211,66 @@ function M.connect()
     db_conn:exec(string.format("INSERT OR IGNORE INTO categorias (nome) VALUES ('%s')", c))
   end
 
+-- Histórico de leituras por leitor
+  db_conn:exec([[
+    CREATE TABLE IF NOT EXISTS historico_leituras (
+      id         INTEGER PRIMARY KEY AUTOINCREMENT,
+      leitor_id  TEXT    NOT NULL,
+      noticia_id INTEGER NOT NULL,
+      lido_em    TEXT    NOT NULL DEFAULT (datetime('now')),
+      UNIQUE(leitor_id, noticia_id),
+      FOREIGN KEY (noticia_id) REFERENCES noticias(id) ON DELETE CASCADE
+    );
+  ]])
+ 
+  -- Enquetes
+  db_conn:exec([[
+    CREATE TABLE IF NOT EXISTS enquetes (
+      id         INTEGER PRIMARY KEY AUTOINCREMENT,
+      noticia_id INTEGER,
+      pergunta   TEXT    NOT NULL,
+      ativa      INTEGER NOT NULL DEFAULT 1,
+      criado_em  TEXT    NOT NULL DEFAULT (datetime('now')),
+      FOREIGN KEY (noticia_id) REFERENCES noticias(id) ON DELETE SET NULL
+    );
+  ]])
+ 
+  -- Opções das enquetes
+  db_conn:exec([[
+    CREATE TABLE IF NOT EXISTS enquete_opcoes (
+      id         INTEGER PRIMARY KEY AUTOINCREMENT,
+      enquete_id INTEGER NOT NULL,
+      texto      TEXT    NOT NULL,
+      votos      INTEGER NOT NULL DEFAULT 0,
+      FOREIGN KEY (enquete_id) REFERENCES enquetes(id) ON DELETE CASCADE
+    );
+  ]])
+ 
+  -- Votos de enquete por IP (evita duplicatas)
+  db_conn:exec([[
+    CREATE TABLE IF NOT EXISTS enquete_votos (
+      id         INTEGER PRIMARY KEY AUTOINCREMENT,
+      enquete_id INTEGER NOT NULL,
+      opcao_id   INTEGER NOT NULL,
+      ip         TEXT    NOT NULL DEFAULT '',
+      votado_em  TEXT    NOT NULL DEFAULT (datetime('now')),
+      UNIQUE(enquete_id, ip),
+      FOREIGN KEY (enquete_id) REFERENCES enquetes(id) ON DELETE CASCADE
+    );
+  ]])
+ 
+  -- Log de performance (tempo de resposta por rota)
+  db_conn:exec([[
+    CREATE TABLE IF NOT EXISTS perf_log (
+      id         INTEGER PRIMARY KEY AUTOINCREMENT,
+      rota       TEXT    NOT NULL,
+      metodo     TEXT    NOT NULL DEFAULT 'GET',
+      status     INTEGER NOT NULL DEFAULT 200,
+      ms         INTEGER NOT NULL DEFAULT 0,
+      criado_em  TEXT    NOT NULL DEFAULT (datetime('now'))
+    );
+  ]])
+
   return db_conn
 end
 
@@ -1675,6 +1735,314 @@ function M.comparar_historico(id_a, id_b)
     diff_titulo  = M.diff_texto(a.titulo_ant,   b.titulo_ant),
     diff_conteudo = M.diff_texto(a.conteudo_ant, b.conteudo_ant),
   }
+end
+
+-- ─── Histórico de leituras ────────────────────────────────────────────────────
+ 
+-- Registra uma leitura (ignora duplicata — UNIQUE garante 1 por notícia)
+function M.registrar_leitura(leitor_id, noticia_id)
+  if not leitor_id or leitor_id == "" then return end
+  local conn = M.connect()
+  -- INSERT OR REPLACE para atualizar o timestamp se já existir
+  conn:exec(string.format(
+    "INSERT OR REPLACE INTO historico_leituras (leitor_id, noticia_id, lido_em) VALUES (%s, %d, datetime('now'))",
+    escape(leitor_id), tonumber(noticia_id)
+  ))
+end
+ 
+-- Retorna histórico de leituras de um leitor (notícias completas, paginado)
+function M.get_historico_leituras(leitor_id, pagina, por_pagina)
+  if not leitor_id or leitor_id == "" then return { rows = {}, total = 0, total_paginas = 0, pagina = 1 } end
+  pagina     = tonumber(pagina)     or 1
+  por_pagina = tonumber(por_pagina) or 12
+  local total  = query(string.format(
+    "SELECT COUNT(*) AS n FROM historico_leituras WHERE leitor_id = %s",
+    escape(leitor_id)
+  ))[1].n
+  local offset = (pagina - 1) * por_pagina
+  local rows   = query(string.format([[
+    SELECT n.*, hl.lido_em
+    FROM historico_leituras hl
+    JOIN noticias n ON n.id = hl.noticia_id
+    WHERE hl.leitor_id = %s
+    ORDER BY hl.lido_em DESC
+    LIMIT %d OFFSET %d
+  ]], escape(leitor_id), por_pagina, offset))
+  return {
+    rows          = rows,
+    total         = total,
+    pagina        = pagina,
+    por_pagina    = por_pagina,
+    total_paginas = math.ceil(total / por_pagina),
+  }
+end
+ 
+-- Categorias mais lidas por um leitor
+function M.get_categorias_preferidas(leitor_id)
+  if not leitor_id or leitor_id == "" then return {} end
+  return query(string.format([[
+    SELECT n.categoria, COUNT(*) AS total
+    FROM historico_leituras hl
+    JOIN noticias n ON n.id = hl.noticia_id
+    WHERE hl.leitor_id = %s
+    GROUP BY n.categoria
+    ORDER BY total DESC
+    LIMIT 5
+  ]], escape(leitor_id)))
+end
+ 
+-- ─── Enquetes / Polls ─────────────────────────────────────────────────────────
+ 
+-- Retorna enquete com opções e total de votos
+function M.get_enquete(id)
+  local enq = query("SELECT * FROM enquetes WHERE id=" .. tonumber(id))[1]
+  if not enq then return nil end
+  enq.opcoes = query("SELECT * FROM enquete_opcoes WHERE enquete_id=" .. tonumber(id) .. " ORDER BY id")
+  local total_row = query("SELECT SUM(votos) AS t FROM enquete_opcoes WHERE enquete_id=" .. tonumber(id))[1]
+  enq.total_votos = tonumber(total_row and total_row.t) or 0
+  return enq
+end
+ 
+-- Retorna enquete associada a uma notícia
+function M.get_enquete_da_noticia(noticia_id)
+  local rows = query(string.format(
+    "SELECT id FROM enquetes WHERE noticia_id=%d AND ativa=1 LIMIT 1",
+    tonumber(noticia_id)
+  ))
+  if #rows == 0 then return nil end
+  return M.get_enquete(rows[1].id)
+end
+ 
+-- Lista todas as enquetes (para o admin)
+function M.get_enquetes()
+  return query([[
+    SELECT e.*, n.titulo AS noticia_titulo,
+      (SELECT SUM(votos) FROM enquete_opcoes WHERE enquete_id=e.id) AS total_votos
+    FROM enquetes e
+    LEFT JOIN noticias n ON n.id = e.noticia_id
+    ORDER BY e.criado_em DESC
+  ]])
+end
+ 
+-- Cria uma enquete com suas opções
+function M.criar_enquete(noticia_id, pergunta, opcoes)
+  local conn = M.connect()
+  conn:exec(string.format(
+    "INSERT INTO enquetes (noticia_id, pergunta) VALUES (%s, %s)",
+    noticia_id and tostring(tonumber(noticia_id)) or "NULL",
+    escape(pergunta)
+  ))
+  local enq_id = conn:last_insert_rowid()
+  for _, texto in ipairs(opcoes or {}) do
+    if texto ~= "" then
+      conn:exec(string.format(
+        "INSERT INTO enquete_opcoes (enquete_id, texto) VALUES (%d, %s)",
+        enq_id, escape(texto)
+      ))
+    end
+  end
+  return enq_id
+end
+ 
+-- Registra voto (retorna "ok", "ja_votou" ou "erro")
+function M.votar_enquete(enquete_id, opcao_id, ip)
+  local conn = M.connect()
+  -- Verifica se já votou
+  local ja = query(string.format(
+    "SELECT id FROM enquete_votos WHERE enquete_id=%d AND ip=%s LIMIT 1",
+    tonumber(enquete_id), escape(ip)
+  ))
+  if #ja > 0 then return "ja_votou" end
+ 
+  -- Verifica se opção pertence à enquete
+  local opcao = query(string.format(
+    "SELECT id FROM enquete_opcoes WHERE id=%d AND enquete_id=%d LIMIT 1",
+    tonumber(opcao_id), tonumber(enquete_id)
+  ))
+  if #opcao == 0 then return "erro" end
+ 
+  -- Registra voto e incrementa contador
+  conn:exec(string.format(
+    "INSERT INTO enquete_votos (enquete_id, opcao_id, ip) VALUES (%d, %d, %s)",
+    tonumber(enquete_id), tonumber(opcao_id), escape(ip)
+  ))
+  conn:exec(string.format(
+    "UPDATE enquete_opcoes SET votos=votos+1 WHERE id=%d",
+    tonumber(opcao_id)
+  ))
+  return "ok"
+end
+ 
+-- Deleta enquete
+function M.deletar_enquete(id)
+  local conn = M.connect()
+  conn:exec("DELETE FROM enquetes WHERE id=" .. tonumber(id))
+end
+ 
+-- ─── Performance ─────────────────────────────────────────────────────────────
+ 
+-- Registra uma requisição (chame no início+fim de rotas importantes)
+function M.log_perf(rota, metodo, status, ms)
+  local conn = M.connect()
+  conn:exec(string.format(
+    "INSERT INTO perf_log (rota, metodo, status, ms) VALUES (%s, %s, %d, %d)",
+    escape(rota), escape(metodo or "GET"),
+    tonumber(status) or 200, tonumber(ms) or 0
+  ))
+end
+ 
+-- Estatísticas de performance por rota (últimas 24h)
+function M.get_perf_stats(horas)
+  horas = tonumber(horas) or 24
+  return query(string.format([[
+    SELECT
+      rota,
+      COUNT(*)              AS requests,
+      ROUND(AVG(ms), 1)     AS avg_ms,
+      MAX(ms)               AS max_ms,
+      MIN(ms)               AS min_ms,
+      SUM(CASE WHEN status >= 400 THEN 1 ELSE 0 END) AS erros,
+      SUM(CASE WHEN ms > 500  THEN 1 ELSE 0 END)     AS lentas
+    FROM perf_log
+    WHERE criado_em >= datetime('now', '-%d hours')
+    GROUP BY rota
+    ORDER BY requests DESC
+  ]], horas))
+end
+ 
+-- Série temporal de requests por hora (últimas 24h)
+function M.get_perf_por_hora()
+  return query([[
+    SELECT
+      strftime('%H', criado_em) AS hora,
+      COUNT(*)                  AS requests,
+      ROUND(AVG(ms), 0)         AS avg_ms
+    FROM perf_log
+    WHERE criado_em >= datetime('now', '-24 hours')
+    GROUP BY hora
+    ORDER BY hora ASC
+  ]])
+end
+ 
+-- Erros recentes (status >= 400)
+function M.get_erros_recentes(limite)
+  return query(string.format([[
+    SELECT rota, status, ms, criado_em
+    FROM perf_log
+    WHERE status >= 400
+    ORDER BY criado_em DESC
+    LIMIT %d
+  ]], tonumber(limite) or 20))
+end
+ 
+-- Limpa logs antigos
+function M.limpar_perf_log(horas)
+  local conn = M.connect()
+  conn:exec(string.format(
+    "DELETE FROM perf_log WHERE criado_em < datetime('now', '-%d hours')",
+    tonumber(horas) or 168  -- 7 dias padrão
+  ))
+end
+ 
+-- ─── Widget "você também pode gostar" (por tags) ──────────────────────────────
+ 
+-- Retorna notícias que compartilham tags com a notícia atual
+-- Mais refinado que get_noticias_relacionadas: usa score de tags em comum
+function M.get_voce_pode_gostar(noticia_id, limite)
+  noticia_id = tonumber(noticia_id)
+  limite     = tonumber(limite) or 4
+ 
+  -- Busca notícias que têm tags em comum, ordenadas por score
+  local resultado = query(string.format([[
+    SELECT n.id, n.titulo, n.categoria, n.jogo, n.criado_em,
+           n.imagem_url, n.views, n.destaque,
+           COUNT(nt2.tag_id) AS tags_comuns
+    FROM noticia_tags nt1
+    JOIN noticia_tags nt2 ON nt2.tag_id = nt1.tag_id AND nt2.noticia_id != %d
+    JOIN noticias n ON n.id = nt2.noticia_id
+    WHERE nt1.noticia_id = %d
+      AND (n.publicar_em = '' OR n.publicar_em <= datetime('now'))
+    GROUP BY n.id
+    ORDER BY tags_comuns DESC, n.views DESC, n.criado_em DESC
+    LIMIT %d
+  ]], noticia_id, noticia_id, limite))
+ 
+  -- Se não tiver tags em comum, fallback para categoria
+  if #resultado == 0 then
+    local noticia = M.get_noticia(noticia_id)
+    if noticia then
+      resultado = query(string.format([[
+        SELECT id, titulo, categoria, jogo, criado_em, imagem_url, views, destaque,
+               0 AS tags_comuns
+        FROM noticias
+        WHERE categoria = %s AND id != %d
+          AND (publicar_em = '' OR publicar_em <= datetime('now'))
+        ORDER BY views DESC, criado_em DESC
+        LIMIT %d
+      ]], escape(noticia.categoria), noticia_id, limite))
+    end
+  end
+ 
+  return resultado
+end
+ 
+-- ─── Comparação de jogos ──────────────────────────────────────────────────────
+ 
+-- Retorna dados enriquecidos de dois jogos para comparação
+function M.comparar_jogos(id_a, id_b)
+  local a = M.get_jogo(id_a)
+  local b = M.get_jogo(id_b)
+  if not a or not b then return nil end
+ 
+  -- Enriquece com avaliações
+  local aval_a = M.get_avaliacao_jogo(id_a)
+  local aval_b = M.get_avaliacao_jogo(id_b)
+  a.media_aval = aval_a.media; a.total_avals = aval_a.total
+  b.media_aval = aval_b.media; b.total_avals = aval_b.total
+ 
+  -- Contagem de notícias sobre cada jogo
+  local n_a = query(string.format(
+    "SELECT COUNT(*) AS n FROM noticias WHERE jogo=%s", escape(a.nome)
+  ))[1].n
+  local n_b = query(string.format(
+    "SELECT COUNT(*) AS n FROM noticias WHERE jogo=%s", escape(b.nome)
+  ))[1].n
+  a.total_noticias = n_a
+  b.total_noticias = n_b
+ 
+  -- Views totais das notícias de cada jogo
+  local v_a = query(string.format(
+    "SELECT COALESCE(SUM(views),0) AS n FROM noticias WHERE jogo=%s", escape(a.nome)
+  ))[1].n
+  local v_b = query(string.format(
+    "SELECT COALESCE(SUM(views),0) AS n FROM noticias WHERE jogo=%s", escape(b.nome)
+  ))[1].n
+  a.views_noticias = v_a
+  b.views_noticias = v_b
+ 
+  -- Curtidas totais nas notícias
+  local l_a = query(string.format(
+    "SELECT COALESCE(SUM(likes),0) AS n FROM noticias WHERE jogo=%s", escape(a.nome)
+  ))[1].n
+  local l_b = query(string.format(
+    "SELECT COALESCE(SUM(likes),0) AS n FROM noticias WHERE jogo=%s", escape(b.nome)
+  ))[1].n
+  a.likes_noticias = l_a
+  b.likes_noticias = l_b
+ 
+  -- Última notícia de cada jogo
+  local ul_a = query(string.format(
+    "SELECT titulo, criado_em FROM noticias WHERE jogo=%s ORDER BY criado_em DESC LIMIT 1",
+    escape(a.nome)
+  ))[1]
+  local ul_b = query(string.format(
+    "SELECT titulo, criado_em FROM noticias WHERE jogo=%s ORDER BY criado_em DESC LIMIT 1",
+    escape(b.nome)
+  ))[1]
+  a.ultima_noticia = ul_a
+  b.ultima_noticia = ul_b
+ 
+  return { a = a, b = b }
 end
 
 return M

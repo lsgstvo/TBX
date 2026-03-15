@@ -214,6 +214,34 @@ return Widget:extend(function(self)
         end)
       end
 
+if self.voce_pode_gostar and #self.voce_pode_gostar > 0 then
+    section({ class = "shadow-card mt-2 voce-pode-gostar" }, function()
+      h3("✨ Você Também Pode Gostar")
+      div({ class = "vpg-grid" }, function()
+        for _, n in ipairs(self.voce_pode_gostar) do
+          a({ href = "/noticias/" .. n.id, class = "vpg-card" }, function()
+            if n.imagem_url and n.imagem_url ~= "" then
+              img({ src = n.imagem_url, alt = n.titulo, class = "vpg-img" })
+            else
+              div({ class = "vpg-placeholder" }, n.categoria:sub(1,2))
+            end
+            div({ class = "vpg-info" }, function()
+              div({ class = "vpg-meta" }, function()
+                span({ class = "tag", style = "font-size:.7rem" }, n.categoria)
+                if n.tags_comuns and n.tags_comuns > 0 then
+                  span({ class = "vpg-tags-badge" },
+                    n.tags_comuns .. " tag" .. (n.tags_comuns > 1 and "s" or "") .. " em comum")
+                end
+              end)
+              p({ class = "vpg-titulo" }, n.titulo)
+              span({ class = "vpg-views" }, "👁 " .. tostring(n.views or 0))
+            end)
+          end)
+        end
+      end)
+    end)
+  end
+
       -- Comentários
       section({ id = "comentarios", class = "shadow-card mt-2 comentarios-section" }, function()
         h3("💬 Comentários (" .. tostring(#(self.comentarios or {})) .. ")")
@@ -354,6 +382,38 @@ return Widget:extend(function(self)
           if (prop) prop.style.width = pct + '%%';
         })
         .catch(function() {});
+      }
+
+      // ── Enquete ───────────────────────────────────────────────────────
+      function votarEnquete(enqueteId, opcaoId) {
+        fetch('/api/enquete/' + enqueteId + '/votar', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: 'opcao_id=' + opcaoId
+        })
+        .then(function(r){ return r.json(); })
+        .then(function(data){
+          if (data.status === 'ja_votou') {
+            alert('Voc\u00ea j\u00e1 votou nesta enquete!');
+            return;
+          }
+          if (data.status !== 'ok' || !data.enquete) return;
+          var enq   = data.enquete;
+          var total = enq.total_votos || 0;
+          (enq.opcoes || []).forEach(function(op) {
+            var pct = total > 0 ? Math.round((op.votos / total) * 100) : 0;
+            var btn = document.querySelector('[data-id="' + op.id + '"]');
+            if (!btn) return;
+            var fill  = btn.querySelector('.enquete-barra-fill');
+            var label = btn.querySelector('.enquete-opcao-pct');
+            if (fill)  fill.style.width = pct + '%%';
+            if (label) label.textContent = pct + '%% (' + op.votos + ')';
+            btn.disabled = true;
+          });
+          var totalEl = document.getElementById('enquete-total');
+          if (totalEl) totalEl.textContent = total + ' voto' + (total === 1 ? '' : 's');
+        })
+        .catch(function(){});
       }
 
       // ── Toasts de conquistas novas ───────────────────────────────────

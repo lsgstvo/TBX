@@ -10,6 +10,20 @@ local function get_leitor_id(self)
    return self.session.leitor_id
  end
 
+-- ─── 0. MIDDLEWARE DE PERFORMANCE ─────────────────────────────────────────
+-- Adicione este bloco logo após os requires no app.lua:
+--
+ local function perf_wrap(rota, fn)
+   return function(self)
+     local t0 = ngx.now()
+     local r  = fn(self)
+     local ms = math.floor((ngx.now() - t0) * 1000)
+     db.log_perf(rota, ngx.var.request_method or "GET",
+                 self.res and self.res.status or 200, ms)
+     return r
+   end
+ end
+
 local app = lapis.Application()
 app.layout = require("views.layout")
 
@@ -79,6 +93,39 @@ app:get("/conquistas", function(self)
   self.og_url       = "http://localhost:8080/conquistas"
   return { render = "conquistas" }
 end)
+
+app:get("/perfil", function(self)
+  local leitor_id  = get_leitor_id(self)
+  local pagina     = tonumber(self.params.pagina) or 1
+  local historico  = db.get_historico_leituras(leitor_id, pagina, 12)
+ 
+  self.leitor_id          = leitor_id
+  self.historico          = historico.rows
+  self.hist_pagina        = historico.pagina
+  self.hist_total_pag     = historico.total_paginas
+  self.hist_total         = historico.total
+  self.conquistas         = db.get_conquistas_leitor(leitor_id)
+  self.categorias_pref    = db.get_categorias_preferidas(leitor_id)
+  self.views_total        = self.session.views_total or 0
+  self.og_titulo          = "Meu Perfil — Portal Gamer"
+  self.og_url             = "http://localhost:8080/perfil"
+  return { render = "perfil_leitor" }
+end)
+ 
+-- Limpa histórico do leitor
+app:post("/perfil/limpar", function(self)
+  local leitor_id = get_leitor_id(self)
+  if leitor_id and leitor_id ~= "" then
+    local conn = db.connect()
+    conn:exec(string.format(
+      "DELETE FROM historico_leituras WHERE leitor_id = %s",
+      -- escape é local em db.lua, reuse inline:
+      "'" .. leitor_id:gsub("'","''") .. "'"
+    ))
+  end
+  return { redirect_to = "/perfil" }
+end)
+
 
 app:get("/mapa", function(self)
   self.noticias   = db.get_noticias_publicadas()
@@ -151,6 +198,7 @@ end)
 -- Adiciona conquistas e views counter
  
 app:get("/noticias/:id", function(self)
+  local t0      = ngx.now()
   local noticia = db.get_noticia(self.params.id)
   if not noticia then return { status = 404, render = "erro" } end
   if noticia.publicar_em and noticia.publicar_em ~= ""
@@ -160,19 +208,19 @@ app:get("/noticias/:id", function(self)
   db.incrementar_views(self.params.id)
   db.registrar_view_diaria(self.params.id)
  
-  local ip       = ngx.var.remote_addr or "0.0.0.0"
+  local ip        = ngx.var.remote_addr or "0.0.0.0"
   local leitor_id = get_leitor_id(self)
  
-  -- Incrementa contador de views do leitor na sessão
+  -- Registra no histórico de leituras
+  db.registrar_leitura(leitor_id, self.params.id)
+ 
   self.session.views_total = (self.session.views_total or 0) + 1
-  -- Rastreia categorias visitadas
   local cats = self.session.categorias_vistas or {}
   cats[noticia.categoria or ""] = true
   self.session.categorias_vistas = cats
   local n_cats = 0
   for _ in pairs(cats) do n_cats = n_cats + 1 end
  
-  -- Verifica conquistas
   local novas_conquistas = db.verificar_conquistas(leitor_id, {
     views_total          = self.session.views_total,
     hora                 = os.date("*t").hour,
@@ -180,38 +228,45 @@ app:get("/noticias/:id", function(self)
     categorias_visitadas = n_cats,
   })
  
-  self.noticia          = noticia
-  self.autor            = noticia.autor_id and db.get_autor(noticia.autor_id) or nil
-  self.comentarios      = db.get_comentarios_aprovados(self.params.id)
-  self.relacionadas     = db.get_noticias_relacionadas(
-                            noticia.id, noticia.jogo, noticia.categoria, 4)
-  self.jogos_populares  = db.get_jogos()
-  self.mais_vistas      = db.get_mais_vistas(6)
-  self.tags             = db.get_tags_da_noticia(self.params.id)
-  self.curtidas         = db.get_curtidas(self.params.id, ip)
-  self.novas_conquistas = novas_conquistas   -- para toast JS
-  self.modo_leitura     = self.params.leitura == "1"
-  self.erro_coment      = self.session.coment_erro
+  -- Serializa conquistas para JS
+  local cjson = {}
+  for i, c in ipairs(novas_conquistas) do
+    cjson[i] = string.format(
+      '{"nome":%q,"desc":%q,"ico":%q,"cor":%q}',
+      c.nome, c.desc, c.ico, c.cor
+    )
+  end
+  self.conquistas_json = "[" .. table.concat(cjson, ",") .. "]"
+ 
+  self.noticia         = noticia
+  self.autor           = noticia.autor_id and db.get_autor(noticia.autor_id) or nil
+  self.comentarios     = db.get_comentarios_aprovados(self.params.id)
+  self.relacionadas    = db.get_noticias_relacionadas(
+                           noticia.id, noticia.jogo, noticia.categoria, 4)
+  self.voce_pode_gostar = db.get_voce_pode_gostar(self.params.id, 4)  -- novo
+  self.jogos_populares = db.get_jogos()
+  self.mais_vistas     = db.get_mais_vistas(6)
+  self.tags            = db.get_tags_da_noticia(self.params.id)
+  self.curtidas        = db.get_curtidas(self.params.id, ip)
+  self.enquete         = db.get_enquete_da_noticia(self.params.id)    -- novo
+  self.ja_votou        = nil  -- verificado no cliente via cookie/IP
+  self.modo_leitura    = self.params.leitura == "1"
+  self.novas_conquistas = novas_conquistas
+  self.erro_coment     = self.session.coment_erro
   self.session.coment_erro = nil
-  self.flash_coment_ok  = self.session.coment_ok
+  self.flash_coment_ok = self.session.coment_ok
   self.session.coment_ok = nil
   self.og_titulo    = noticia.titulo
   self.og_descricao = noticia.conteudo:sub(1, 160)
   self.og_url       = "http://localhost:8080/noticias/" .. noticia.id
   self.og_tipo      = "article"
-  -- Serializa conquistas novas em JSON para uso no JS da view
-  local conquistas_json = "["
-  for i, c in ipairs(self.novas_conquistas or {}) do
-    conquistas_json = conquistas_json .. string.format(
-      '{"nome":%q,"desc":%q,"ico":%q,"cor":%q}%s',
-      c.nome, c.desc, c.ico, c.cor,
-      i < #self.novas_conquistas and "," or ""
-    )
-  end
-  conquistas_json = conquistas_json .. "]"
-  self.conquistas_json = conquistas_json
+ 
+  -- Log de performance
+  db.log_perf("/noticias/:id", "GET", 200,
+    math.floor((ngx.now() - t0) * 1000))
   return { render = "noticia_detalhe" }
 end)
+
 
 -- ─── POST: Enviar comentário ──────────────────────────────────────────────────
 
@@ -364,6 +419,65 @@ app:get("/admin/log", function(self)
   return { render = "admin.admin_log", layout = "admin.admin_layout" }
 end)
  
+app:get("/admin/performance", function(self)
+  if not auth.require_login(self) then return end
+  local horas          = tonumber(self.params.h) or 24
+  self.stats           = db.get_perf_stats(horas)
+  self.por_hora        = db.get_perf_por_hora()
+  self.erros_recentes  = db.get_erros_recentes(10)
+  self.horas           = horas
+  return { render = "admin.admin_performance", layout = "admin.admin_layout" }
+end)
+ 
+app:post("/admin/performance/limpar", function(self)
+  if not auth.require_login(self) then return end
+  db.limpar_perf_log(tonumber(self.params.horas) or 168)
+  return { redirect_to = "/admin/performance" }
+end)
+
+app:get("/admin/enquetes", function(self)
+  if not auth.require_login(self) then return end
+  self.enquetes = db.get_enquetes()
+  return { render = "admin.admin_enquetes", layout = "admin.admin_layout" }
+end)
+ 
+app:get("/admin/enquetes/nova", function(self)
+  if not auth.require_login(self) then return end
+  self.noticias = db.get_noticias()
+  self.erro     = self.session.form_erro; self.session.form_erro = nil
+  return { render = "admin.admin_enquete_form", layout = "admin.admin_layout" }
+end)
+ 
+app:post("/admin/enquetes/nova", function(self)
+  if not auth.require_login(self) then return end
+  local pergunta   = trim(self.params.pergunta or "")
+  local noticia_id = tonumber(self.params.noticia_id) or nil
+  if pergunta == "" then
+    self.session.form_erro = "A pergunta é obrigatória."
+    return { redirect_to = "/admin/enquetes/nova" }
+  end
+  -- Coleta opções (opcao_1, opcao_2, opcao_3, opcao_4)
+  local opcoes = {}
+  for i = 1, 6 do
+    local op = trim(self.params["opcao_" .. i] or "")
+    if op ~= "" then table.insert(opcoes, op) end
+  end
+  if #opcoes < 2 then
+    self.session.form_erro = "Adicione pelo menos 2 opções."
+    return { redirect_to = "/admin/enquetes/nova" }
+  end
+  db.criar_enquete(noticia_id, pergunta, opcoes)
+  db.log("criar_enquete", "enquetes", pergunta:sub(1,60), ngx.var.remote_addr or "")
+  return { redirect_to = "/admin/enquetes" }
+end)
+ 
+app:post("/admin/enquetes/:id/deletar", function(self)
+  if not auth.require_login(self) then return end
+  db.deletar_enquete(self.params.id)
+  return { redirect_to = "/admin/enquetes" }
+end)
+
+
 app:get("/admin/noticias/:id/seo", function(self)
   if not auth.require_login(self) then return end
   local noticia = db.get_noticia(self.params.id)
@@ -752,6 +866,28 @@ app:post("/api/curtir/:id", function(self)
     dislikes = resultado.dislikes,
     meu_voto = resultado.meu_voto,
   }}
+end)
+
+app:post("/api/enquete/:id/votar", function(self)
+  local enquete_id = self.params.id
+  local opcao_id   = tonumber(self.params.opcao_id)
+  local ip         = ngx.var.remote_addr or "0.0.0.0"
+ 
+  if not opcao_id then
+    return { json = { status = "erro", mensagem = "Opção inválida." } }
+  end
+ 
+  local resultado = db.votar_enquete(enquete_id, opcao_id, ip)
+  if resultado == "ja_votou" then
+    return { json = { status = "ja_votou", mensagem = "Você já votou nesta enquete." } }
+  end
+  if resultado == "erro" then
+    return { json = { status = "erro", mensagem = "Opção não encontrada." } }
+  end
+ 
+  -- Retorna enquete atualizada
+  local enquete = db.get_enquete(enquete_id)
+  return { json = { status = "ok", enquete = enquete } }
 end)
 
 
@@ -1150,6 +1286,20 @@ app:get("/lancamentos", function(self)
   self.og_descricao = "Fique por dentro dos próximos jogos."
   self.og_url       = "http://localhost:8080/lancamentos"
   return { render = "lancamentos" }
+end)
+
+app:get("/comparar", function(self)
+  self.jogos = db.get_jogos()
+  local id_a = tonumber(self.params.a)
+  local id_b = tonumber(self.params.b)
+  if id_a and id_b then
+    self.comparacao = db.comparar_jogos(id_a, id_b)
+    self.id_a       = id_a
+    self.id_b       = id_b
+  end
+  self.og_titulo    = "Comparar Jogos — Portal Gamer"
+  self.og_url       = "http://localhost:8080/comparar"
+  return { render = "comparar_jogos" }
 end)
 
 
