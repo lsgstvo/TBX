@@ -48,21 +48,26 @@ return Widget:extend(function(self)
       header({ class = "site-header" }, function()
         div({ class = "container header-inner" }, function()
           a({ href = "/", class = "site-brand" }, "🎮 Portal Gamer")
-          div({ class = "header-busca", id = "header-busca" }, function()
-            input({ type = "text", id = "busca-global", class = "busca-global-input",
-                    placeholder = "Buscar notícias...", autocomplete = "off" })
-            div({ id = "busca-resultados", class = "busca-resultados" })
+          
+          nav({ class = "header-nav" }, function()
+            a({ href = "/" },         "Início")
+            a({ href = "/noticias" }, "Notícias")
+            a({ href = "/trending" }, "🔥 Trending")
+            a({ href = "/ranking" },  "Ranking")
+            a({ href = "/sobre" },    "Sobre")
+            a({ href = "/admin" },    "Admin")
           end)
+
           div({ class = "header-actions" }, function()
-            nav(function()
-              a({ href = "/" },         "Início")
-              a({ href = "/noticias" }, "Notícias")
-              a({ href = "/trending" }, "🔥 Trending")
-              a({ href = "/ranking" },  "Ranking")
-              a({ href = "/sobre" },    "Sobre")
-              a({ href = "/admin" },    "Admin")
-              a({ href = "/perfil", class = "nav-perfil-btn" }, "👤 Perfil")
+            div({ class = "header-busca", id = "header-busca" }, function()
+              button({ id = "search-toggle", class = "search-toggle-btn", title = "Pesquisar", onclick = "toggleSearch()" }, "🔍")
+              input({ type = "text", id = "busca-global", class = "busca-global-input",
+                      placeholder = "Buscar notícias...", autocomplete = "off" })
+              div({ id = "busca-resultados", class = "busca-resultados" })
             end)
+            
+            a({ href = "/perfil", class = "nav-perfil-btn" }, (self.leitor_icon or "👤") .. " " .. (self.leitor_nome or "Perfil"))
+            
             button({ id = "tema-toggle", class = "tema-btn",
                      title = "Alternar tema", onclick = "toggleTema()" }, "☀️")
           end)
@@ -141,6 +146,19 @@ return Widget:extend(function(self)
             if (btn) btn.textContent = novo === 'dark' ? '\u2600\uFE0F' : '\uD83C\uDF19';
           }
 
+          function toggleSearch() {
+            var headerBusca = document.getElementById('header-busca');
+            var input = document.getElementById('busca-global');
+            var isAberto = headerBusca.classList.toggle('aberto');
+            if (isAberto) {
+              input.focus();
+            } else {
+              input.value = '';
+              document.getElementById('busca-resultados').innerHTML = '';
+              document.getElementById('busca-resultados').classList.remove('aberto');
+            }
+          }
+
           // Busca global AJAX
           (function() {
             var input = document.getElementById('busca-global');
@@ -172,8 +190,12 @@ return Widget:extend(function(self)
               }, 280);
             });
             document.addEventListener('click', function(e) {
-              if (!document.getElementById('header-busca').contains(e.target))
+              var container = document.getElementById('header-busca');
+              if (!container.contains(e.target)) {
                 res.classList.remove('aberto');
+                container.classList.remove('aberto');
+                input.value = '';
+              }
             });
             input.addEventListener('keydown', function(e) {
               if (e.key==='Escape') { res.classList.remove('aberto'); input.blur(); }

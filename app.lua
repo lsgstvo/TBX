@@ -10,6 +10,17 @@ local function get_leitor_id(self)
    return self.session.leitor_id
  end
 
+ local function get_leitor_avatar(self)
+   local id = get_leitor_id(self)
+   local config = db.get_leitor_config(id)
+   return config.avatar or '👤'
+ end
+  local function get_leitor_nome(self)
+    local id = get_leitor_id(self)
+    local config = db.get_leitor_config(id)
+    return config.nome or "Perfil"
+  end
+
 -- ─── 0. MIDDLEWARE DE PERFORMANCE ─────────────────────────────────────────
 -- Adicione este bloco logo após os requires no app.lua:
 --
@@ -33,6 +44,12 @@ app.layout = require("views.layout")
 local config = require("lapis.config").get()
 
 local function trim(s) return (s or ""):match("^%s*(.-)%s*$") end
+
+-- Global filter: carrega o avatar e nome em todas as páginas para o header
+app:before_filter(function(self)
+  self.leitor_icon = get_leitor_avatar(self)
+  self.leitor_nome = get_leitor_nome(self)
+end)
 
 -- ─── Home ─────────────────────────────────────────────────────────────────────
 
@@ -95,18 +112,22 @@ app:get("/conquistas", function(self)
 end)
 
 app:get("/perfil", function(self)
-  local leitor_id  = get_leitor_id(self)
+  local lid  = get_leitor_id(self)
   local pagina     = tonumber(self.params.pagina) or 1
-  local historico  = db.get_historico_leituras(leitor_id, pagina, 12)
+  local historico  = db.get_historico_leituras(lid, pagina, 12)
+  local config = db.get_leitor_config(lid)
  
-  self.leitor_id          = leitor_id
+  self.leitor_id          = lid
   self.historico          = historico.rows
   self.hist_pagina        = historico.pagina
   self.hist_total_pag     = historico.total_paginas
   self.hist_total         = historico.total
-  self.conquistas         = db.get_conquistas_leitor(leitor_id)
-  self.categorias_pref    = db.get_categorias_preferidas(leitor_id)
+  self.conquistas         = db.get_conquistas_leitor(lid)
+  self.categorias_pref    = db.get_categorias_preferidas(lid)
   self.views_total        = self.session.views_total or 0
+  self.leitor_avatar      = config.avatar
+  self.leitor_nome        = config.nome or "Perfil"
+  self.leitor_icon        = get_leitor_avatar(self) -- Para o header
   self.og_titulo          = "Meu Perfil — Portal Gamer"
   self.og_url             = "http://localhost:8080/perfil"
   return { render = "perfil_leitor" }
@@ -114,16 +135,43 @@ end)
  
 -- Limpa histórico do leitor
 app:post("/perfil/limpar", function(self)
-  local leitor_id = get_leitor_id(self)
-  if leitor_id and leitor_id ~= "" then
-    local conn = db.connect()
-    conn:exec(string.format(
-      "DELETE FROM historico_leituras WHERE leitor_id = %s",
-      -- escape é local em db.lua, reuse inline:
-      "'" .. leitor_id:gsub("'","''") .. "'"
-    ))
-  end
+  db.limpar_historico_leituras(get_leitor_id(self))
   return { redirect_to = "/perfil" }
+end)
+
+-- Muda avatar do leitor
+app:post("/api/perfil/avatar", function(self)
+  local lid = get_leitor_id(self)
+  local avatar = self.params.avatar
+  if avatar then
+    db.set_leitor_avatar(lid, avatar)
+    return { json = { success = true } }
+  end
+  return { json = { success = false } }
+end)
+
+-- Muda nome do leitor
+app:post("/api/perfil/nome", function(self)
+  local lid = get_leitor_id(self)
+  local nome = self.params.nome
+  if nome and #nome > 0 then
+    if #nome > 30 then nome = nome:sub(1, 30) end
+    db.set_leitor_nome(lid, nome)
+    return { json = { success = true, nome = nome } }
+  end
+  return { json = { success = false } }
+end) -- unchanged
+
+-- Muda nome do leitor
+app:post("/api/perfil/nome", function(self)
+  local lid = get_leitor_id(self)
+  local nome = self.params.nome
+  if nome and #nome > 0 then
+    if #nome > 30 then nome = nome:sub(1, 30) end
+    db.set_leitor_nome(lid, nome)
+    return { json = { success = true, nome = nome } }
+  end
+  return { json = { success = false } }
 end)
 
 

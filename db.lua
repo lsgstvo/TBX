@@ -271,6 +271,15 @@ function M.connect()
     );
   ]])
 
+  -- Configurações persistentes do leitor (avatar, etc)
+  db_conn:exec([[
+    CREATE TABLE IF NOT EXISTS leitores (
+      leitor_id TEXT PRIMARY KEY,
+      avatar    TEXT NOT NULL DEFAULT '👤',
+      criado_em TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+  ]])
+
   return db_conn
 end
 
@@ -2043,6 +2052,47 @@ function M.comparar_jogos(id_a, id_b)
   b.ultima_noticia = ul_b
  
   return { a = a, b = b }
+end
+
+-- âââ Leitores / ConfiguraÃ§Ãµes ââââââââââââââââââââââââââââââââ
+
+-- ─── Leitores / Configurações ─────────────────────────────────
+
+function M.get_leitor_config(leitor_id)
+  -- Garante que a coluna 'nome' existe
+  local conn = M.connect()
+  pcall(function() conn:exec("ALTER TABLE leitores ADD COLUMN nome TEXT") end)
+
+  local rows = query(string.format("SELECT * FROM leitores WHERE leitor_id = %s", escape(leitor_id)))
+  if rows[1] then return rows[1] end
+  -- Se não existe, cria com padrão
+  conn:exec(string.format("INSERT OR IGNORE INTO leitores (leitor_id) VALUES (%s)", escape(leitor_id)))
+  return { leitor_id = leitor_id, avatar = '👤', nome = nil }
+end
+
+function M.set_leitor_avatar(leitor_id, avatar)
+  local conn = M.connect()
+  -- Garante que o leitor existe antes de dar update
+  conn:exec(string.format("INSERT OR IGNORE INTO leitores (leitor_id) VALUES (%s)", escape(leitor_id)))
+  conn:exec(string.format(
+    "UPDATE leitores SET avatar = %s WHERE leitor_id = %s",
+    escape(avatar), escape(leitor_id)
+  ))
+end
+
+function M.set_leitor_nome(leitor_id, nome)
+  local conn = M.connect()
+  -- Garante que o leitor existe antes de dar update
+  conn:exec(string.format("INSERT OR IGNORE INTO leitores (leitor_id) VALUES (%s)", escape(leitor_id)))
+  conn:exec(string.format(
+    "UPDATE leitores SET nome = %s WHERE leitor_id = %s",
+    escape(nome), escape(leitor_id)
+  ))
+end
+
+function M.limpar_historico_leituras(leitor_id)
+  local conn = M.connect()
+  conn:exec(string.format("DELETE FROM historico_leituras WHERE leitor_id = %s", escape(leitor_id)))
 end
 
 return M

@@ -7,12 +7,16 @@ return Widget:extend(function(self)
   -- Hero: card de identidade do leitor
   div({ class = "shadow-card perfil-hero" }, function()
     div({ class = "perfil-avatar-wrapper" }, function()
-      -- Avatar gerado a partir do leitor_id (iniciais visuais)
       div({ class = "perfil-avatar" }, function()
-        span({ class = "perfil-avatar-ico" }, "🎮")
+        span({ id = "perfil-avatar-display", class = "perfil-avatar-ico" }, self.leitor_avatar or "👤")
       end)
       div({ class = "perfil-info" }, function()
-        h2("Meu Perfil")
+        div({ class = "perfil-nome-edit-container" }, function()
+          input({ type = "text", id = "perfil-nome-input", class = "perfil-nome-input", 
+                  value = self.leitor_nome or "Perfil", maxlength = 30,
+                  onchange = "salvarNome(this.value)" })
+          span({ class = "edit-icon" }, "✎")
+        end)
         p({ class = "perfil-id" }, "ID: " .. (self.leitor_id or ""):sub(1, 12) .. "...")
         div({ class = "perfil-stats-row" }, function()
           div({ class = "perfil-stat" }, function()
@@ -31,9 +35,25 @@ return Widget:extend(function(self)
       end)
     end)
 
+    -- Seleção de Avatar
+    div({ class = "avatar-selection mt-2" }, function()
+      p({ class = "perfil-pref-label" }, "Escolha seu ícone:")
+      div({ class = "avatar-grid" }, function()
+        local icons = { "👤", "🎮", "🕹️", "👾", "🎧", "⌨️", "🖱️", "🔥", "⚡", "🎲", "🏆", "🦾", "🐉", "⚔️", "🛡️", "🏹" }
+        for _, icon in ipairs(icons) do
+          button({ 
+            type = "button",
+            class = "avatar-opt-btn" .. (icon == self.leitor_avatar and " active" or ""), 
+            ["data-icon"] = icon,
+            onclick = "mudarAvatar('" .. icon .. "')" 
+          }, icon)
+        end
+      end)
+    end)
+
     -- Categorias preferidas
     if self.categorias_pref and #self.categorias_pref > 0 then
-      div({ class = "perfil-prefs" }, function()
+      div({ class = "perfil-prefs mt-2" }, function()
         span({ class = "perfil-pref-label" }, "Você curte: ")
         for _, c in ipairs(self.categorias_pref) do
           a({ href  = "/noticias?categoria=" .. c.categoria,
@@ -71,9 +91,7 @@ return Widget:extend(function(self)
         form({ method = "POST", action = "/perfil/limpar",
                onsubmit = "return confirm('Limpar todo o histórico?')",
                style    = "display:inline" }, function()
-          button({ type = "submit", class = "btn-deletar",
-                   style = "font-size:.8rem;padding:.3rem .7rem" },
-                 "🗑 Limpar")
+          button({ type = "submit", class = "btn-limpar-perfil" }, "🗑 Limpar")
         end)
       end
     end)
@@ -121,4 +139,64 @@ return Widget:extend(function(self)
       a({ href = "/noticias", class = "btn-ver-mais" }, "Explorar notícias →")
     end
   end)
+
+  raw([[
+    <script>
+    function mudarAvatar(icon) {
+      console.log('Mudando avatar para:', icon);
+      fetch('/api/perfil/avatar', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: 'avatar=' + encodeURIComponent(icon)
+      })
+      .then(r => r.json())
+      .then(data => {
+        if (data.success) {
+          const display = document.getElementById('perfil-avatar-display');
+          if (display) display.textContent = icon;
+          
+          const headerBtn = document.querySelector('.nav-perfil-btn');
+          if (headerBtn) {
+            // Preserva o nome ao mudar ícone
+            const nomeStr = document.getElementById('perfil-nome-input').value;
+            headerBtn.textContent = icon + ' ' + nomeStr;
+          }
+          
+          document.querySelectorAll('.avatar-opt-btn').forEach(b => {
+             const btnIcon = b.getAttribute('data-icon');
+             if (btnIcon === icon) {
+               b.classList.add('active');
+             } else {
+               b.classList.remove('active');
+             }
+          });
+        }
+      });
+    }
+
+    function salvarNome(novoNome) {
+      if (!novoNome || novoNome.trim() === "") return;
+      console.log('Salvando novo nome:', novoNome);
+      fetch('/api/perfil/nome', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: 'nome=' + encodeURIComponent(novoNome)
+      })
+      .then(r => r.json())
+      .then(data => {
+        if (data.success) {
+          const headerBtn = document.querySelector('.nav-perfil-btn');
+          if (headerBtn) {
+            const currentIcon = document.getElementById('perfil-avatar-display').textContent;
+            headerBtn.textContent = currentIcon + ' ' + data.nome;
+          }
+          // Feedback visual opcional? (Ex: brilho no input)
+          const input = document.getElementById('perfil-nome-input');
+          input.style.borderColor = 'var(--accent-glow)';
+          setTimeout(() => input.style.borderColor = '', 1000);
+        }
+      });
+    }
+    </script>
+  ]])
 end)

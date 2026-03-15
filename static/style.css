@@ -45,7 +45,7 @@ body {
 }
 
 .container {
-  max-width: 1000px;
+  max-width: 1200px;
   margin: 0 auto;
   padding: 0 1.5rem;
   width: 100%;
@@ -67,8 +67,8 @@ body {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  gap: 1rem;
-  flex-wrap: wrap;
+  gap: 1.5rem;
+  flex-wrap: nowrap;
 }
 
 .site-brand {
@@ -85,11 +85,12 @@ body {
   flex-wrap: nowrap;
 }
 
-.site-header nav {
+.header-nav {
   display: flex;
   align-items: center;
-  flex-wrap: wrap;
-  gap: .2rem;
+  gap: .5rem;
+  flex-grow: 1;
+  justify-content: center;
 }
 
 .site-header nav a {
@@ -117,6 +118,7 @@ body {
   font-weight: 700 !important;
   letter-spacing: .01em;
   transition: all .2s !important;
+  text-decoration: none !important;
 }
 
 .nav-perfil-btn:hover {
@@ -125,6 +127,7 @@ body {
   color: white !important;
   transform: translateY(-1px);
   box-shadow: 0 4px 12px rgba(99, 102, 241, .35);
+  text-decoration: none !important;
 }
 
 .rss-link {
@@ -154,9 +157,31 @@ body {
   color: var(--primary-color);
 }
 
-/* ── Busca Global (Header) ────────────────────────────────────────────────── */
+/* ── Busca Global (Header) ── */
 .header-busca {
   position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.search-toggle-btn {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 1.1rem;
+  cursor: pointer;
+  padding: .5rem;
+  border-radius: 50%;
+  transition: all .2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2;
+}
+
+.search-toggle-btn:hover {
+  background: var(--border-color);
+  color: var(--primary-color);
 }
 
 .busca-global-input {
@@ -168,14 +193,25 @@ body {
   font-size: .9rem;
   font-family: inherit;
   outline: none;
-  width: 240px;
-  transition: all .2s;
+  width: 0;
+  opacity: 0;
+  pointer-events: none;
+  transition: all .3s cubic-bezier(0.4, 0, 0.2, 1);
+  margin-left: -2.5rem;
+  padding-left: 2.5rem;
 }
 
-.busca-global-input:focus {
+.header-busca.aberto .busca-global-input {
+  width: 260px;
+  opacity: 1;
+  pointer-events: auto;
+  margin-left: -2.5rem;
   border-color: var(--primary-color);
   box-shadow: 0 0 0 3px rgba(99, 102, 241, .15);
-  width: 280px;
+}
+
+.header-busca.aberto .search-toggle-btn {
+  color: var(--primary-color);
 }
 
 .busca-resultados {
@@ -3693,6 +3729,105 @@ a.lancamento-nome:hover {
   background: var(--primary-color);
   height: 100%;
   transition: width .5s;
+}
+/* ── Seleção de Avatar (Página de Perfil) ── */
+.avatar-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(45px, 1fr));
+  gap: 0.8rem;
+  margin-top: 1rem;
+  max-width: 450px;
+}
+
+.avatar-opt-btn {
+  background: var(--surface-color);
+  border: 2px solid var(--border-color);
+  border-radius: 12px;
+  font-size: 1.5rem;
+  padding: 0.5rem;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.avatar-opt-btn:hover {
+  border-color: var(--primary-color);
+  background: rgba(99, 102, 241, 0.05);
+  transform: scale(1.1);
+}
+
+.avatar-opt-btn.active {
+  border-color: var(--primary-color);
+  background: rgba(99, 102, 241, 0.15);
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.2);
+}
+
+/* Edição de Nome no Perfil */
+.perfil-nome-edit-container {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.perfil-nome-input {
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  color: var(--text-color);
+  font-size: 1.5rem;
+  font-weight: 700;
+  padding: 2px 8px;
+  width: 100%;
+  max-width: 250px;
+  transition: all 0.3s ease;
+  cursor: pointer;
+}
+
+.perfil-nome-input:hover,
+.perfil-nome-input:focus {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(255, 255, 255, 0.2);
+  outline: none;
+}
+
+.edit-icon {
+  font-size: 0.9rem;
+  opacity: 0.5;
+  transition: opacity 0.3s;
+}
+
+.perfil-nome-edit-container:hover .edit-icon {
+  opacity: 1;
+}
+
+.perfil-id {
+  color: var(--text-muted);
+}
+
+/* Botão Limpar Personalizado */
+.btn-limpar-perfil {
+  background: rgba(244, 63, 94, 0.1);
+  color: #f43f5e;
+  border: 1px solid rgba(244, 63, 94, 0.3);
+  padding: 0.4rem 0.8rem;
+  border-radius: 8px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.btn-limpar-perfil:hover {
+  background: #f43f5e;
+  color: white;
+  border-color: #f43f5e;
+  box-shadow: 0 4px 12px rgba(244, 63, 94, 0.2);
 }
 
 .comp-barra-b {
