@@ -319,6 +319,7 @@ return Widget:extend(function(self)
   script(function()
     raw(string.format([[
       var NOTICIA_ID = %d;
+      var NOVAS_CONQUISTAS = ]] .. (self.conquistas_json or "[]") .. [[;
 
       // ── Tempo de leitura ─────────────────────────────────────────────
       (function() {
@@ -354,6 +355,32 @@ return Widget:extend(function(self)
         })
         .catch(function() {});
       }
+
+      // ── Toasts de conquistas novas ───────────────────────────────────
+      (function() {
+        if (!NOVAS_CONQUISTAS || NOVAS_CONQUISTAS.length === 0) return;
+        var delay = 800;
+        NOVAS_CONQUISTAS.forEach(function(c) {
+          setTimeout(function() {
+            var toast = document.createElement('div');
+            toast.className = 'conquista-toast';
+            toast.innerHTML =
+              '<span class="toast-ico">' + c.ico + '</span>' +
+              '<div class="toast-info">' +
+                '<div class="toast-titulo">&#127885; Conquista desbloqueada!</div>' +
+                '<div style="font-weight:700;font-size:.9rem;color:' + c.cor + '">' + c.nome + '</div>' +
+                '<div class="toast-desc">' + c.desc + '</div>' +
+              '</div>';
+            document.body.appendChild(toast);
+            setTimeout(function() {
+              toast.style.opacity = '0';
+              toast.style.transition = 'opacity .5s';
+              setTimeout(function() { document.body.removeChild(toast); }, 500);
+            }, 4000);
+          }, delay);
+          delay += 1200;
+        });
+      })();
 
       // ── Widget Clima Gamer ────────────────────────────────────────────
       // Simula status de servidores com base em horário/dia (sem API externa)

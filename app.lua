@@ -3,6 +3,13 @@ local lapis = require("lapis")
 local db    = require("db")
 local auth  = require("auth")
 
+local function get_leitor_id(self)
+   if not self.session.leitor_id then
+     self.session.leitor_id = string.format("%x%x", os.time(), math.random(0xFFFF))
+   end
+   return self.session.leitor_id
+ end
+
 local app = lapis.Application()
 app.layout = require("views.layout")
 
@@ -59,6 +66,31 @@ app:get("/about", function(self)
   return { render = "about" }
 end)
 
+app:get("/conquistas", function(self)
+  local leitor_id = get_leitor_id(self)
+  self.todas_conquistas   = db.get_conquistas_def()
+  self.minhas_conquistas  = db.get_conquistas_leitor(leitor_id)
+  -- Mapa de desbloqueadas para lookup rápido na view
+  self.desbloqueadas = {}
+  for _, c in ipairs(self.minhas_conquistas) do
+    self.desbloqueadas[c.tipo] = c.desbloqueada_em
+  end
+  self.og_titulo    = "Minhas Conquistas — Portal Gamer"
+  self.og_url       = "http://localhost:8080/conquistas"
+  return { render = "conquistas" }
+end)
+
+app:get("/mapa", function(self)
+  self.noticias   = db.get_noticias_publicadas()
+  self.jogos      = db.get_jogos()
+  self.categorias = db.get_categorias()
+  self.tags_pop   = db.get_tags_populares(20)
+  self.autores    = db.get_autores()
+  self.lancamentos = db.get_lancamentos(false)
+  self.og_titulo    = "Mapa do Site — Portal Gamer"
+  self.og_url       = "http://localhost:8080/mapa"
+  return { render = "mapa" }
+end)
 
 -- ─── Ranking ─────────────────────────────────────────────────────────────────
 
@@ -116,6 +148,8 @@ end)
 
 -- (adiciona registrar_view_diaria e passa autor)
  
+-- Adiciona conquistas e views counter
+ 
 app:get("/noticias/:id", function(self)
   local noticia = db.get_noticia(self.params.id)
   if not noticia then return { status = 404, render = "erro" } end
@@ -125,25 +159,57 @@ app:get("/noticias/:id", function(self)
   end
   db.incrementar_views(self.params.id)
   db.registrar_view_diaria(self.params.id)
-  local ip             = ngx.var.remote_addr or "0.0.0.0"
-  self.noticia         = noticia
-  self.autor           = noticia.autor_id and db.get_autor(noticia.autor_id) or nil
-  self.comentarios     = db.get_comentarios_aprovados(self.params.id)
-  self.relacionadas    = db.get_noticias_relacionadas(
-                           noticia.id, noticia.jogo, noticia.categoria, 4)
-  self.jogos_populares = db.get_jogos()
-  self.mais_vistas     = db.get_mais_vistas(6)
-  self.tags            = db.get_tags_da_noticia(self.params.id)
-  self.curtidas        = db.get_curtidas(self.params.id, ip)   -- novo
-  self.modo_leitura    = self.params.leitura == "1"             -- novo: ?leitura=1
-  self.erro_coment     = self.session.coment_erro
+ 
+  local ip       = ngx.var.remote_addr or "0.0.0.0"
+  local leitor_id = get_leitor_id(self)
+ 
+  -- Incrementa contador de views do leitor na sessão
+  self.session.views_total = (self.session.views_total or 0) + 1
+  -- Rastreia categorias visitadas
+  local cats = self.session.categorias_vistas or {}
+  cats[noticia.categoria or ""] = true
+  self.session.categorias_vistas = cats
+  local n_cats = 0
+  for _ in pairs(cats) do n_cats = n_cats + 1 end
+ 
+  -- Verifica conquistas
+  local novas_conquistas = db.verificar_conquistas(leitor_id, {
+    views_total          = self.session.views_total,
+    hora                 = os.date("*t").hour,
+    curtidas_total       = self.session.curtidas_total or 0,
+    categorias_visitadas = n_cats,
+  })
+ 
+  self.noticia          = noticia
+  self.autor            = noticia.autor_id and db.get_autor(noticia.autor_id) or nil
+  self.comentarios      = db.get_comentarios_aprovados(self.params.id)
+  self.relacionadas     = db.get_noticias_relacionadas(
+                            noticia.id, noticia.jogo, noticia.categoria, 4)
+  self.jogos_populares  = db.get_jogos()
+  self.mais_vistas      = db.get_mais_vistas(6)
+  self.tags             = db.get_tags_da_noticia(self.params.id)
+  self.curtidas         = db.get_curtidas(self.params.id, ip)
+  self.novas_conquistas = novas_conquistas   -- para toast JS
+  self.modo_leitura     = self.params.leitura == "1"
+  self.erro_coment      = self.session.coment_erro
   self.session.coment_erro = nil
-  self.flash_coment_ok = self.session.coment_ok
+  self.flash_coment_ok  = self.session.coment_ok
   self.session.coment_ok = nil
   self.og_titulo    = noticia.titulo
   self.og_descricao = noticia.conteudo:sub(1, 160)
   self.og_url       = "http://localhost:8080/noticias/" .. noticia.id
   self.og_tipo      = "article"
+  -- Serializa conquistas novas em JSON para uso no JS da view
+  local conquistas_json = "["
+  for i, c in ipairs(self.novas_conquistas or {}) do
+    conquistas_json = conquistas_json .. string.format(
+      '{"nome":%q,"desc":%q,"ico":%q,"cor":%q}%s',
+      c.nome, c.desc, c.ico, c.cor,
+      i < #self.novas_conquistas and "," or ""
+    )
+  end
+  conquistas_json = conquistas_json .. "]"
+  self.conquistas_json = conquistas_json
   return { render = "noticia_detalhe" }
 end)
 
@@ -298,6 +364,31 @@ app:get("/admin/log", function(self)
   return { render = "admin.admin_log", layout = "admin.admin_layout" }
 end)
  
+app:get("/admin/noticias/:id/seo", function(self)
+  if not auth.require_login(self) then return end
+  local noticia = db.get_noticia(self.params.id)
+  if not noticia then return { status = 404, render = "erro" } end
+  self.noticia  = noticia
+  self.seo      = db.analisar_seo(noticia)
+  return { render = "admin.admin_seo", layout = "admin.admin_layout" }
+end)
+
+app:get("/admin/noticias/:id/historico", function(self)
+  if not auth.require_login(self) then return end
+  local noticia  = db.get_noticia(self.params.id)
+  if not noticia then return { status = 404, render = "erro" } end
+  self.noticia   = noticia
+  self.historico = db.get_historico(self.params.id)
+  -- Se dois IDs foram passados, faz o diff
+  local id_a = tonumber(self.params.a)
+  local id_b = tonumber(self.params.b)
+  if id_a and id_b then
+    self.comparacao = db.comparar_historico(id_a, id_b)
+  end
+  return { render = "admin.admin_historico_diff", layout = "admin.admin_layout" }
+end)
+
+
 app:post("/admin/log/limpar", function(self)
   if not auth.require_login(self) then return end
   db.limpar_log_antigo(tonumber(self.params.dias) or 90)
@@ -632,20 +723,29 @@ app:get("/api/busca", function(self)
   return { json = { status = "ok", data = lite, total = #lite } }
 end)
 
+-- Adiciona conquista de curtidor
+ 
 app:post("/api/curtir/:id", function(self)
   local tipo = self.params.tipo
   local ip   = ngx.var.remote_addr or "0.0.0.0"
- 
   if tipo ~= "like" and tipo ~= "dislike" then
     return { json = { status = "erro", mensagem = "Tipo inválido." } }
   end
- 
   local noticia = db.get_noticia(self.params.id)
   if not noticia then
     return { json = { status = "erro", mensagem = "Notícia não encontrada." } }
   end
- 
   local resultado = db.curtir(self.params.id, tipo, ip)
+ 
+  -- Incrementa contador de curtidas na sessão e verifica conquista
+  if tipo == "like" then
+    self.session.curtidas_total = (self.session.curtidas_total or 0) + 1
+    local leitor_id = get_leitor_id(self)
+    db.verificar_conquistas(leitor_id, {
+      curtidas_total = self.session.curtidas_total
+    })
+  end
+ 
   return { json = {
     status   = "ok",
     likes    = resultado.likes,
@@ -987,6 +1087,72 @@ app:post("/admin/autores/:id/deletar", function(self)
   return { redirect_to = "/admin/autores" }
 end)
  
+app:get("/admin/lancamentos", function(self)
+  if not auth.require_login(self) then return end
+  self.lancamentos = db.get_lancamentos(false)
+  return { render = "admin.admin_lancamentos", layout = "admin.admin_layout" }
+end)
+ 
+app:get("/admin/lancamentos/novo", function(self)
+  if not auth.require_login(self) then return end
+  self.erro = self.session.form_erro; self.session.form_erro = nil
+  return { render = "admin.admin_lancamento_form", layout = "admin.admin_layout" }
+end)
+ 
+app:post("/admin/lancamentos/novo", function(self)
+  if not auth.require_login(self) then return end
+  local nome = trim(self.params.nome or "")
+  if nome == "" then
+    self.session.form_erro = "Nome é obrigatório."
+    return { redirect_to = "/admin/lancamentos/novo" }
+  end
+  db.criar_lancamento(nome, trim(self.params.plataformas),
+    trim(self.params.data_lancamento), trim(self.params.genero),
+    trim(self.params.descricao), trim(self.params.imagem_url),
+    trim(self.params.site_url))
+  db.log("criar_lancamento", "lancamentos", nome, ngx.var.remote_addr or "")
+  return { redirect_to = "/admin/lancamentos" }
+end)
+ 
+app:get("/admin/lancamentos/:id/editar", function(self)
+  if not auth.require_login(self) then return end
+  local lanc = db.get_lancamento(self.params.id)
+  if not lanc then return { status = 404, render = "erro" } end
+  self.lancamento = lanc
+  self.erro = self.session.form_erro; self.session.form_erro = nil
+  return { render = "admin.admin_lancamento_editar", layout = "admin.admin_layout" }
+end)
+ 
+app:post("/admin/lancamentos/:id/editar", function(self)
+  if not auth.require_login(self) then return end
+  local nome = trim(self.params.nome or "")
+  if nome == "" then
+    self.session.form_erro = "Nome é obrigatório."
+    return { redirect_to = "/admin/lancamentos/" .. self.params.id .. "/editar" }
+  end
+  db.editar_lancamento(self.params.id, nome, trim(self.params.plataformas),
+    trim(self.params.data_lancamento), trim(self.params.genero),
+    trim(self.params.descricao), trim(self.params.imagem_url),
+    trim(self.params.site_url))
+  return { redirect_to = "/admin/lancamentos" }
+end)
+ 
+app:post("/admin/lancamentos/:id/deletar", function(self)
+  if not auth.require_login(self) then return end
+  db.deletar_lancamento(self.params.id)
+  return { redirect_to = "/admin/lancamentos" }
+end)
+ 
+-- Página pública de lançamentos
+app:get("/lancamentos", function(self)
+  self.lancamentos  = db.get_lancamentos(false)
+  self.og_titulo    = "Próximos Lançamentos"
+  self.og_descricao = "Fique por dentro dos próximos jogos."
+  self.og_url       = "http://localhost:8080/lancamentos"
+  return { render = "lancamentos" }
+end)
+
+
 -- Página pública de um autor
 app:get("/autor/:id", function(self)
   local autor = db.get_autor(self.params.id)

@@ -180,6 +180,31 @@ function M.connect()
   db_conn:exec("ALTER TABLE noticias ADD COLUMN likes    INTEGER NOT NULL DEFAULT 0")
   db_conn:exec("ALTER TABLE noticias ADD COLUMN dislikes INTEGER NOT NULL DEFAULT 0")
 
+  -- Conquistas desbloqueadas por leitor (identificado por cookie/IP)
+  db_conn:exec([[
+    CREATE TABLE IF NOT EXISTS conquistas (
+      id         INTEGER PRIMARY KEY AUTOINCREMENT,
+      leitor_id  TEXT    NOT NULL,
+      tipo       TEXT    NOT NULL,
+      desbloqueada_em TEXT NOT NULL DEFAULT (datetime('now')),
+      UNIQUE(leitor_id, tipo)
+    );
+  ]])
+ 
+  -- Próximos lançamentos de jogos
+  db_conn:exec([[
+    CREATE TABLE IF NOT EXISTS lancamentos (
+      id          INTEGER PRIMARY KEY AUTOINCREMENT,
+      nome        TEXT    NOT NULL,
+      plataformas TEXT    NOT NULL DEFAULT '',
+      data_lancamento TEXT NOT NULL DEFAULT '',
+      genero      TEXT    NOT NULL DEFAULT '',
+      descricao   TEXT    NOT NULL DEFAULT '',
+      imagem_url  TEXT    NOT NULL DEFAULT '',
+      site_url    TEXT    NOT NULL DEFAULT '',
+      criado_em   TEXT    NOT NULL DEFAULT (datetime('now'))
+    );
+  ]])
 
   -- Categorias padrão
   for _, c in ipairs({ "Geral", "Update", "Lançamento", "E-Sports", "Hardware", "Indie" }) do
@@ -1292,6 +1317,363 @@ function M.get_dados_about()
     top_autores   = top_autores,
     totais        = totais,
     mais_popular  = mais_popular,
+  }
+end
+
+-- Definição de todas as conquistas disponíveis
+local CONQUISTAS_DEF = {
+  { tipo = "primeira_visita",    nome = "Bem-vindo!",        desc = "Primeira visita ao portal",           ico = "👋", cor = "#6366f1" },
+  { tipo = "leitor_5",           nome = "Curioso",           desc = "Leu 5 notícias",                      ico = "📰", cor = "#22c55e" },
+  { tipo = "leitor_25",          nome = "Entusiasta",        desc = "Leu 25 notícias",                     ico = "🔥", cor = "#f59e0b" },
+  { tipo = "leitor_100",         nome = "Viciado em News",   desc = "Leu 100 notícias",                    ico = "🏆", cor = "#f43f5e" },
+  { tipo = "comentarista",       nome = "Voz da Comunidade", desc = "Fez seu primeiro comentário",         ico = "💬", cor = "#8b5cf6" },
+  { tipo = "curtidor",           nome = "Like Master",       desc = "Curtiu 10 notícias",                  ico = "👍", cor = "#ec4899" },
+  { tipo = "explorador",         nome = "Explorador",        desc = "Visitou 5 categorias diferentes",     ico = "🗺", cor = "#14b8a6" },
+  { tipo = "fiel",               nome = "Leitor Fiel",       desc = "Voltou ao portal em 3 dias seguidos", ico = "📅", cor = "#f97316" },
+  { tipo = "madrugador",         nome = "Madrugador",        desc = "Leu uma notícia antes das 6h",        ico = "🌙", cor = "#6366f1" },
+  { tipo = "newsletter",         nome = "Conectado",         desc = "Inscrito na newsletter",              ico = "📧", cor = "#0ea5e9" },
+}
+ 
+-- Retorna definição de uma conquista pelo tipo
+function M.get_conquista_def(tipo)
+  for _, c in ipairs(CONQUISTAS_DEF) do
+    if c.tipo == tipo then return c end
+  end
+  return nil
+end
+ 
+-- Retorna todas as definições (para a página de conquistas)
+function M.get_conquistas_def()
+  return CONQUISTAS_DEF
+end
+ 
+-- Conquistas já desbloqueadas por um leitor
+function M.get_conquistas_leitor(leitor_id)
+  if not leitor_id or leitor_id == "" then return {} end
+  local rows = query(string.format(
+    "SELECT tipo, desbloqueada_em FROM conquistas WHERE leitor_id = %s ORDER BY desbloqueada_em ASC",
+    escape(leitor_id)
+  ))
+  -- Enriquece com a definição
+  local resultado = {}
+  for _, r in ipairs(rows) do
+    local def = M.get_conquista_def(r.tipo)
+    if def then
+      local item = {}
+      for k, v in pairs(def) do item[k] = v end
+      item.desbloqueada_em = r.desbloqueada_em
+      table.insert(resultado, item)
+    end
+  end
+  return resultado
+end
+ 
+-- Tenta desbloquear uma conquista; retorna true se foi nova
+function M.desbloquear(leitor_id, tipo)
+  if not leitor_id or leitor_id == "" then return false end
+  if not M.get_conquista_def(tipo) then return false end
+  local conn = M.connect()
+  -- INSERT OR IGNORE: não duplica
+  conn:exec(string.format(
+    "INSERT OR IGNORE INTO conquistas (leitor_id, tipo) VALUES (%s, %s)",
+    escape(leitor_id), escape(tipo)
+  ))
+  return conn:changes() > 0
+end
+ 
+-- Verifica conquistas com base no comportamento atual do leitor
+-- views_hoje: noticias vistas nesta sessão (número)
+-- hora: hora atual (0-23)
+-- ctx: tabela com flags { comentou, curtiu, newsletter, categorias_visitadas }
+function M.verificar_conquistas(leitor_id, ctx)
+  if not leitor_id or leitor_id == "" then return {} end
+  ctx = ctx or {}
+  local novas = {}
+ 
+  -- Total de notícias lidas pelo leitor
+  local total_lidas = query(string.format(
+    "SELECT COUNT(*) AS n FROM conquistas WHERE leitor_id=%s AND tipo LIKE 'leitor_%%'",
+    escape(leitor_id)
+  ))[1].n
+ 
+  -- Views totais registradas (via cookie no app)
+  local views = tonumber(ctx.views_total) or 0
+ 
+  local function tentar(tipo)
+    if M.desbloquear(leitor_id, tipo) then
+      local def = M.get_conquista_def(tipo)
+      if def then table.insert(novas, def) end
+    end
+  end
+ 
+  -- Primeira visita
+  tentar("primeira_visita")
+ 
+  -- Por número de views
+  if views >= 5   then tentar("leitor_5")   end
+  if views >= 25  then tentar("leitor_25")  end
+  if views >= 100 then tentar("leitor_100") end
+ 
+  -- Madrugador (hora entre 0 e 5)
+  local hora = tonumber(ctx.hora) or os.date("*t").hour
+  if hora >= 0 and hora < 6 then tentar("madrugador") end
+ 
+  -- Ações específicas
+  if ctx.comentou    then tentar("comentarista") end
+  if ctx.newsletter  then tentar("newsletter")   end
+ 
+  -- Curtidas acumuladas
+  if tonumber(ctx.curtidas_total) and ctx.curtidas_total >= 10 then
+    tentar("curtidor")
+  end
+ 
+  -- Categorias exploradas
+  if tonumber(ctx.categorias_visitadas) and ctx.categorias_visitadas >= 5 then
+    tentar("explorador")
+  end
+ 
+  return novas
+end
+ 
+-- Ranking de leitores com mais conquistas (para /mapa ou /stats)
+function M.get_ranking_conquistas(limite)
+  return query(string.format([[
+    SELECT leitor_id, COUNT(*) AS total
+    FROM conquistas
+    GROUP BY leitor_id
+    ORDER BY total DESC
+    LIMIT %d
+  ]], tonumber(limite) or 10))
+end
+ 
+-- ─── Análise SEO ──────────────────────────────────────────────────────────────
+ 
+-- Calcula score SEO de uma notícia (0-100) e retorna sugestões
+function M.analisar_seo(noticia)
+  local score    = 0
+  local checks   = {}   -- { ok, texto }
+  local avisos   = {}
+  local titulo   = noticia.titulo   or ""
+  local conteudo = noticia.conteudo or ""
+  local jogo     = noticia.jogo     or ""
+  local tags_count = 0
+ 
+  -- Obtém tags da notícia
+  local tags = M.get_tags_da_noticia(noticia.id)
+  tags_count = #tags
+ 
+  -- 1. Comprimento do título (ideal: 40-60 chars)
+  local t_len = #titulo
+  if t_len >= 10 then
+    score = score + 10
+    table.insert(checks, { ok = true, texto = "Título presente (" .. t_len .. " chars)" })
+  else
+    table.insert(checks, { ok = false, texto = "Título muito curto (mín. 10 chars)" })
+  end
+  if t_len >= 40 and t_len <= 60 then
+    score = score + 10
+    table.insert(checks, { ok = true, texto = "Comprimento do título ideal (40-60 chars)" })
+  elseif t_len > 60 then
+    table.insert(checks, { ok = false, texto = "Título muito longo (" .. t_len .. " > 60 chars)" })
+    table.insert(avisos, "Encurte o título para menos de 60 caracteres.")
+  else
+    table.insert(checks, { ok = false, texto = "Título curto demais para SEO (<40 chars)" })
+  end
+ 
+  -- 2. Conteúdo (ideal: >300 palavras)
+  local palavras = 0
+  for _ in conteudo:gmatch("%S+") do palavras = palavras + 1 end
+  if palavras >= 100 then
+    score = score + 10
+    table.insert(checks, { ok = true, texto = "Conteúdo com texto suficiente (" .. palavras .. " palavras)" })
+  else
+    table.insert(checks, { ok = false, texto = "Pouco conteúdo (ideal: 100+ palavras, atual: " .. palavras .. ")" })
+    table.insert(avisos, "Adicione mais texto para melhorar o ranqueamento.")
+  end
+  if palavras >= 300 then
+    score = score + 10
+    table.insert(checks, { ok = true, texto = "Conteúdo longo e rico (300+ palavras)" })
+  end
+ 
+  -- 3. Jogo relacionado (palavra-chave principal)
+  if jogo ~= "" then
+    score = score + 10
+    table.insert(checks, { ok = true, texto = "Jogo relacionado definido: " .. jogo })
+    -- Verifica se o nome do jogo aparece no título
+    if titulo:lower():find(jogo:lower(), 1, true) then
+      score = score + 10
+      table.insert(checks, { ok = true, texto = "Palavra-chave (jogo) aparece no título" })
+    else
+      table.insert(checks, { ok = false, texto = "Palavra-chave (jogo) ausente no título" })
+      table.insert(avisos, "Inclua o nome do jogo no título para melhor ranqueamento.")
+    end
+  else
+    table.insert(checks, { ok = false, texto = "Nenhum jogo relacionado definido" })
+    table.insert(avisos, "Defina um jogo relacionado para melhorar a relevância.")
+  end
+ 
+  -- 4. Tags
+  if tags_count >= 3 then
+    score = score + 10
+    table.insert(checks, { ok = true, texto = "Tags suficientes (" .. tags_count .. " tags)" })
+  elseif tags_count > 0 then
+    score = score + 5
+    table.insert(checks, { ok = false, texto = "Poucas tags (" .. tags_count .. ", ideal: 3+)" })
+    table.insert(avisos, "Adicione pelo menos 3 tags para melhor categorização.")
+  else
+    table.insert(checks, { ok = false, texto = "Sem tags definidas" })
+    table.insert(avisos, "Adicione tags relevantes à notícia.")
+  end
+ 
+  -- 5. Imagem de capa
+  if noticia.imagem_url and noticia.imagem_url ~= "" then
+    score = score + 10
+    table.insert(checks, { ok = true, texto = "Imagem de capa presente (Open Graph)" })
+  else
+    table.insert(checks, { ok = false, texto = "Sem imagem de capa (prejudica Open Graph)" })
+    table.insert(avisos, "Adicione uma imagem de capa para melhor compartilhamento em redes sociais.")
+  end
+ 
+  -- 6. Categoria
+  if noticia.categoria and noticia.categoria ~= "Geral" then
+    score = score + 10
+    table.insert(checks, { ok = true, texto = "Categoria específica: " .. noticia.categoria })
+  else
+    table.insert(checks, { ok = false, texto = "Categoria genérica (Geral) — seja mais específico" })
+  end
+ 
+  -- 7. Destaque (engajamento)
+  if noticia.destaque == 1 then
+    score = score + 5
+    table.insert(checks, { ok = true, texto = "Notícia em destaque (maior visibilidade)" })
+  end
+ 
+  -- Classificação por score
+  local grade
+  if     score >= 85 then grade = { letra = "A", cor = "#4ade80", label = "Excelente" }
+  elseif score >= 70 then grade = { letra = "B", cor = "#a3e635", label = "Bom" }
+  elseif score >= 50 then grade = { letra = "C", cor = "#f59e0b", label = "Regular" }
+  elseif score >= 30 then grade = { letra = "D", cor = "#f97316", label = "Fraco" }
+  else                    grade = { letra = "F", cor = "#f43f5e", label = "Crítico" }
+  end
+ 
+  return {
+    score   = score,
+    grade   = grade,
+    checks  = checks,
+    avisos  = avisos,
+    palavras = palavras,
+    tags    = tags_count,
+  }
+end
+ 
+-- ─── Próximos lançamentos ─────────────────────────────────────────────────────
+ 
+function M.get_lancamentos(apenas_futuros)
+  if apenas_futuros then
+    return query([[
+      SELECT * FROM lancamentos
+      WHERE data_lancamento >= date('now')
+      ORDER BY data_lancamento ASC
+    ]])
+  end
+  return query("SELECT * FROM lancamentos ORDER BY data_lancamento ASC")
+end
+ 
+function M.get_lancamento(id)
+  local rows = query("SELECT * FROM lancamentos WHERE id=" .. tonumber(id))
+  return rows[1]
+end
+ 
+function M.criar_lancamento(nome, plataformas, data_lancamento, genero, descricao, imagem_url, site_url)
+  local conn = M.connect()
+  conn:exec(string.format(
+    "INSERT INTO lancamentos (nome,plataformas,data_lancamento,genero,descricao,imagem_url,site_url) VALUES (%s,%s,%s,%s,%s,%s,%s)",
+    escape(nome), escape(plataformas or ""), escape(data_lancamento or ""),
+    escape(genero or ""), escape(descricao or ""),
+    escape(imagem_url or ""), escape(site_url or "")
+  ))
+  return conn:last_insert_rowid()
+end
+ 
+function M.editar_lancamento(id, nome, plataformas, data_lancamento, genero, descricao, imagem_url, site_url)
+  local conn = M.connect()
+  conn:exec(string.format(
+    "UPDATE lancamentos SET nome=%s,plataformas=%s,data_lancamento=%s,genero=%s,descricao=%s,imagem_url=%s,site_url=%s WHERE id=%d",
+    escape(nome), escape(plataformas or ""), escape(data_lancamento or ""),
+    escape(genero or ""), escape(descricao or ""),
+    escape(imagem_url or ""), escape(site_url or ""),
+    tonumber(id)
+  ))
+end
+ 
+function M.deletar_lancamento(id)
+  local conn = M.connect()
+  conn:exec("DELETE FROM lancamentos WHERE id=" .. tonumber(id))
+end
+ 
+-- ─── Diff de histórico ────────────────────────────────────────────────────────
+ 
+-- Retorna diff palavra-a-palavra entre dois textos
+-- Retorna tabela de tokens: { texto, tipo } onde tipo = "igual"|"add"|"del"
+function M.diff_texto(texto_a, texto_b)
+  -- Tokeniza em palavras
+  local function tokenizar(s)
+    local t = {}
+    for w in (s .. " "):gmatch("([^%s]+)%s") do table.insert(t, w) end
+    return t
+  end
+ 
+  local a = tokenizar(texto_a or "")
+  local b = tokenizar(texto_b or "")
+ 
+  -- LCS (Longest Common Subsequence) simplificado
+  local m, n = #a, #b
+  local dp = {}
+  for i = 0, m do
+    dp[i] = {}
+    for j = 0, n do dp[i][j] = 0 end
+  end
+  for i = 1, m do
+    for j = 1, n do
+      if a[i] == b[j] then
+        dp[i][j] = dp[i-1][j-1] + 1
+      else
+        dp[i][j] = math.max(dp[i-1][j], dp[i][j-1])
+      end
+    end
+  end
+ 
+  -- Reconstrói o diff
+  local resultado = {}
+  local i, j = m, n
+  while i > 0 or j > 0 do
+    if i > 0 and j > 0 and a[i] == b[j] then
+      table.insert(resultado, 1, { texto = a[i], tipo = "igual" })
+      i = i - 1; j = j - 1
+    elseif j > 0 and (i == 0 or dp[i][j-1] >= dp[i-1][j]) then
+      table.insert(resultado, 1, { texto = b[j], tipo = "add" })
+      j = j - 1
+    else
+      table.insert(resultado, 1, { texto = a[i], tipo = "del" })
+      i = i - 1
+    end
+  end
+ 
+  return resultado
+end
+ 
+-- Compara dois snapshots do histórico pelo ID
+function M.comparar_historico(id_a, id_b)
+  local a = query("SELECT * FROM historico_edicoes WHERE id=" .. tonumber(id_a))[1]
+  local b = query("SELECT * FROM historico_edicoes WHERE id=" .. tonumber(id_b))[1]
+  if not a or not b then return nil end
+ 
+  return {
+    a            = a,
+    b            = b,
+    diff_titulo  = M.diff_texto(a.titulo_ant,   b.titulo_ant),
+    diff_conteudo = M.diff_texto(a.conteudo_ant, b.conteudo_ant),
   }
 end
 
