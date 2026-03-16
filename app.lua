@@ -1,4 +1,3 @@
--- app.lua
 local lapis = require("lapis")
 local db    = require("db")
 local auth  = require("auth")
@@ -163,17 +162,6 @@ app:post("/api/perfil/nome", function(self)
 end) -- unchanged
 
 -- Muda nome do leitor
-app:post("/api/perfil/nome", function(self)
-  local lid = get_leitor_id(self)
-  local nome = self.params.nome
-  if nome and #nome > 0 then
-    if #nome > 30 then nome = nome:sub(1, 30) end
-    db.set_leitor_nome(lid, nome)
-    return { json = { success = true, nome = nome } }
-  end
-  return { json = { success = false } }
-end)
-
 
 app:get("/mapa", function(self)
   self.noticias   = db.get_noticias_publicadas()
@@ -296,8 +284,10 @@ app:get("/noticias/:id", function(self)
   self.mais_vistas     = db.get_mais_vistas(6)
   self.tags            = db.get_tags_da_noticia(self.params.id)
   self.curtidas        = db.get_curtidas(self.params.id, ip)
-  self.enquete         = db.get_enquete_da_noticia(self.params.id)    -- novo
-  self.ja_votou        = nil  -- verificado no cliente via cookie/IP
+  self.enquete         = db.get_enquete_da_noticia(self.params.id)
+  self.nota_rapida     = db.get_nota_rapida(leitor_id, self.params.id)
+  self.tempo_leitura   = db.tempo_leitura(noticia.conteudo)
+  self.ja_votou        = nil
   self.modo_leitura    = self.params.leitura == "1"
   self.novas_conquistas = novas_conquistas
   self.erro_coment     = self.session.coment_erro
@@ -865,28 +855,7 @@ app:get("/api/ranking", function(self)
   return { json = { status = "ok", data = db.get_jogos() } }
 end)
 
-app:get("/api/busca", function(self)
-  local termo = trim(self.params.q or "")
-  if termo == "" then
-    return { json = { status = "ok", data = {}, total = 0 } }
-  end
-  local resultados = db.buscar_noticias(termo)
-  -- Retorna só os campos necessários para o dropdown (leve)
-  local lite = {}
-  for i = 1, math.min(8, #resultados) do
-    local n = resultados[i]
-    table.insert(lite, {
-      id        = n.id,
-      titulo    = n.titulo,
-      categoria = n.categoria,
-      jogo      = n.jogo,
-    })
-  end
-  return { json = { status = "ok", data = lite, total = #lite } }
-end)
 
--- Adiciona conquista de curtidor
- 
 app:post("/api/curtir/:id", function(self)
   local tipo = self.params.tipo
   local ip   = ngx.var.remote_addr or "0.0.0.0"
@@ -939,62 +908,7 @@ app:post("/api/enquete/:id/votar", function(self)
 end)
 
 
-app:post("/admin/upload/imagem", function(self)
-  if not auth.require_login(self) then return end
- 
-  -- Pega o arquivo enviado via multipart/form-data
-  local arquivo = self.params.imagem
-  if not arquivo or type(arquivo) ~= "table" then
-    return { json = { status = "erro", mensagem = "Nenhum arquivo enviado." } }
-  end
- 
-  -- Valida tipo MIME
-  local mime = arquivo.content_type or ""
-  local tipos_validos = { ["image/jpeg"] = true, ["image/png"] = true,
-                           ["image/gif"]  = true, ["image/webp"] = true }
-  if not tipos_validos[mime] then
-    return { json = { status = "erro", mensagem = "Tipo de arquivo inválido. Use JPEG, PNG, GIF ou WebP." } }
-  end
- 
-  -- Valida tamanho (máx. 2 MB)
-  local conteudo = arquivo.content or ""
-  if #conteudo > 2 * 1024 * 1024 then
-    return { json = { status = "erro", mensagem = "Arquivo muito grande. Máximo: 2 MB." } }
-  end
- 
-  -- Gera nome único baseado no timestamp
-  local extensao_map = {
-    ["image/jpeg"] = ".jpg", ["image/png"]  = ".png",
-    ["image/gif"]  = ".gif", ["image/webp"] = ".webp",
-  }
-  local ext      = extensao_map[mime] or ".jpg"
-  local nome_arq = tostring(ngx.now()):gsub("%.", "") .. ext
-  local caminho  = "static/uploads/" .. nome_arq
- 
-  -- Garante que o diretório existe
-  os.execute("mkdir -p static/uploads")
- 
-  -- Grava o arquivo
-  local f, err = io.open(caminho, "wb")
-  if not f then
-    return { json = { status = "erro", mensagem = "Erro ao salvar arquivo: " .. (err or "") } }
-  end
-  f:write(conteudo)
-  f:close()
- 
-  local url = "/static/uploads/" .. nome_arq
-  return { json = { status = "ok", url = url, nome = nome_arq } }
-end)
 
-app:get("/api/docs", function(self)
-  self.og_titulo    = "API — Portal Gamer"
-  self.og_descricao = "Documentação da API pública do Portal Gamer."
-  self.og_url       = "http://localhost:8080/api/docs"
-  return { render = "api_docs" }
-end)
-
-
--- ─── Admin: Login / Logout ────────────────────────────────────────────────────
 
 app:get("/admin/login", function(self)
   if auth.logged_in(self) then return { redirect_to = "/admin" } end
@@ -1384,6 +1298,153 @@ app:post("/jogos/:nome/avaliar", function(self)
   }}
 end)
 
+
+
+-- ─── API: Notas Rápidas ───────────────────────────────────────────────────────
+
+app:post("/api/nota/:id", function(self)
+  local leitor_id = get_leitor_id(self)
+  local texto     = trim(self.params.texto or "")
+  local noticia   = db.get_noticia(self.params.id)
+  if not noticia then
+    return { json = { status = "erro", mensagem = "Notícia não encontrada." } }
+  end
+  if texto == "" then
+    db.deletar_nota_rapida(leitor_id, self.params.id)
+    return { json = { status = "ok", acao = "deletada" } }
+  end
+  if #texto > 500 then
+    return { json = { status = "erro", mensagem = "Nota muito longa (máx. 500 chars)." } }
+  end
+  db.salvar_nota_rapida(leitor_id, self.params.id, texto)
+  return { json = { status = "ok", acao = "salva", texto = texto } }
+end)
+
+app:get("/api/nota/:id", function(self)
+  local leitor_id = get_leitor_id(self)
+  local nota      = db.get_nota_rapida(leitor_id, self.params.id)
+  return { json = { status = "ok", texto = nota and nota.texto or "" } }
+end)
+
+-- ─── Crônicas públicas ────────────────────────────────────────────────────────
+
+app:get("/cronicas", function(self)
+  self.cronicas     = db.get_cronicas(true)
+  self.og_titulo    = "Crônicas & Editoriais"
+  self.og_descricao = "Editoriais, opiniões e análises aprofundadas do mundo dos games."
+  self.og_url       = "http://localhost:8080/cronicas"
+  return { render = "cronicas" }
+end)
+
+app:get("/cronicas/:id", function(self)
+  local cronica = db.get_cronica(self.params.id)
+  if not cronica then return { status = 404, render = "erro" } end
+  if cronica.publicar_em and cronica.publicar_em ~= ""
+    and cronica.publicar_em > os.date("%Y-%m-%d %H:%M:%S") then
+    return { status = 404, render = "erro" }
+  end
+  db.incrementar_views_cronica(self.params.id)
+  self.cronica       = cronica
+  self.tempo_leitura = db.tempo_leitura(cronica.conteudo)
+  self.og_titulo     = cronica.titulo
+  self.og_descricao  = cronica.subtitulo ~= "" and cronica.subtitulo or cronica.conteudo:sub(1, 160)
+  self.og_url        = "http://localhost:8080/cronicas/" .. cronica.id
+  self.og_imagem     = cronica.imagem_url ~= "" and cronica.imagem_url or nil
+  self.og_tipo       = "article"
+  return { render = "cronica_detalhe" }
+end)
+
+-- ─── Admin: Crônicas ─────────────────────────────────────────────────────────
+
+app:get("/admin/cronicas", function(self)
+  if not auth.require_login(self) then return end
+  self.cronicas = db.get_cronicas(false)
+  return { render = "admin.admin_cronicas", layout = "admin.admin_layout" }
+end)
+
+app:get("/admin/cronicas/nova", function(self)
+  if not auth.require_login(self) then return end
+  self.autores = db.get_autores()
+  self.erro    = self.session.form_erro; self.session.form_erro = nil
+  return { render = "admin.admin_cronica_form", layout = "admin.admin_layout" }
+end)
+
+app:post("/admin/cronicas/nova", function(self)
+  if not auth.require_login(self) then return end
+  local titulo   = trim(self.params.titulo or "")
+  local conteudo = trim(self.params.conteudo or "")
+  if titulo == "" or conteudo == "" then
+    self.session.form_erro = "Título e conteúdo são obrigatórios."
+    return { redirect_to = "/admin/cronicas/nova" }
+  end
+  db.criar_cronica(titulo, trim(self.params.subtitulo),
+    conteudo, tonumber(self.params.autor_id) or nil,
+    trim(self.params.imagem_url), trim(self.params.tags_str),
+    self.params.destaque == "1", trim(self.params.publicar_em))
+  db.log("criar_cronica", "cronicas", titulo, ngx.var.remote_addr or "")
+  return { redirect_to = "/admin/cronicas" }
+end)
+
+app:get("/admin/cronicas/:id/editar", function(self)
+  if not auth.require_login(self) then return end
+  local cronica = db.get_cronica(self.params.id)
+  if not cronica then return { status = 404, render = "erro" } end
+  self.cronica = cronica; self.autores = db.get_autores()
+  self.erro = self.session.form_erro; self.session.form_erro = nil
+  return { render = "admin.admin_cronica_editar", layout = "admin.admin_layout" }
+end)
+
+app:post("/admin/cronicas/:id/editar", function(self)
+  if not auth.require_login(self) then return end
+  local titulo   = trim(self.params.titulo or "")
+  local conteudo = trim(self.params.conteudo or "")
+  if titulo == "" or conteudo == "" then
+    self.session.form_erro = "Título e conteúdo são obrigatórios."
+    return { redirect_to = "/admin/cronicas/" .. self.params.id .. "/editar" }
+  end
+  db.editar_cronica(self.params.id, titulo, trim(self.params.subtitulo),
+    conteudo, tonumber(self.params.autor_id) or nil,
+    trim(self.params.imagem_url), trim(self.params.tags_str),
+    self.params.destaque == "1", trim(self.params.publicar_em))
+  return { redirect_to = "/admin/cronicas" }
+end)
+
+app:post("/admin/cronicas/:id/deletar", function(self)
+  if not auth.require_login(self) then return end
+  db.deletar_cronica(self.params.id)
+  return { redirect_to = "/admin/cronicas" }
+end)
+
+-- ─── Admin: Exportar CSV ─────────────────────────────────────────────────────
+
+app:get("/admin/exportar", function(self)
+  if not auth.require_login(self) then return end
+  return { render = "admin.admin_exportar", layout = "admin.admin_layout" }
+end)
+
+app:get("/admin/exportar/noticias.csv", function(self)
+  if not auth.require_login(self) then return end
+  local csv = db.exportar_noticias_csv()
+  ngx.header["Content-Type"]        = "text/csv; charset=UTF-8"
+  ngx.header["Content-Disposition"] = 'attachment; filename="noticias.csv"'
+  return { layout = false, csv }
+end)
+
+app:get("/admin/exportar/comentarios.csv", function(self)
+  if not auth.require_login(self) then return end
+  local csv = db.exportar_comentarios_csv()
+  ngx.header["Content-Type"]        = "text/csv; charset=UTF-8"
+  ngx.header["Content-Disposition"] = 'attachment; filename="comentarios.csv"'
+  return { layout = false, csv }
+end)
+
+app:get("/admin/exportar/newsletter.csv", function(self)
+  if not auth.require_login(self) then return end
+  local csv = db.exportar_newsletter_csv()
+  ngx.header["Content-Type"]        = "text/csv; charset=UTF-8"
+  ngx.header["Content-Disposition"] = 'attachment; filename="newsletter.csv"'
+  return { layout = false, csv }
+end)
 
 
 return app

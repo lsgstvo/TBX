@@ -1,4 +1,3 @@
--- views/noticia_detalhe.lua
 local Widget = require("lapis.html").Widget
 
 return Widget:extend(function(self)
@@ -131,7 +130,8 @@ return Widget:extend(function(self)
           span({ class = "meta-item" },
             "💬 " .. tostring(#(self.comentarios or {})) .. " comentários")
           span({ class = "meta-sep" }, "·")
-          span({ class = "meta-item", id = "tempo-leitura" }, "")
+          span({ class = "meta-item tempo-leitura-badge" },
+            "⏱ " .. tostring(self.tempo_leitura or 1) .. " min de leitura")
           span({ class = "meta-sep" }, "·")
           -- Link modo leitura focada
           a({ href  = "/noticias/" .. self.noticia.id .. "?leitura=1",
@@ -190,6 +190,60 @@ return Widget:extend(function(self)
           a({ href = "/noticias", class = "btn-voltar" }, "← Voltar")
         end)
       end)
+
+
+      -- Nota rápida pessoal
+      div({ class = "nota-rapida-widget" }, function()
+        div({ class = "nota-rapida-header" }, function()
+          span({ class = "nota-rapida-ico" }, "📝")
+          span({ class = "nota-rapida-titulo" }, "Minha Nota")
+          span({ class = "nota-rapida-hint" }, "Só você vê isso")
+        end)
+        textarea({ id          = "nota-rapida-input",
+                   class       = "nota-rapida-textarea",
+                   placeholder = "Escreva uma nota pessoal sobre esta notícia...",
+                   maxlength   = "500",
+                   oninput     = "autoSaveNota(this)" },
+                 self.nota_rapida and self.nota_rapida.texto or "")
+        div({ class = "nota-rapida-footer" }, function()
+          span({ id = "nota-status", class = "nota-status" })
+          span({ id = "nota-chars", class = "nota-chars" }, "0/500")
+        end)
+      end)
+
+
+      -- Enquete vinculada
+      if self.enquete then
+        local enq   = self.enquete
+        local total = enq.total_votos or 0
+        section({ class = "shadow-card mt-2 enquete-section" }, function()
+          h3("📊 " .. enq.pergunta)
+          div({ id = "enquete-" .. enq.id, class = "enquete-wrapper" }, function()
+            div({ id = "enquete-opcoes", class = "enquete-opcoes" }, function()
+              for _, op in ipairs(enq.opcoes or {}) do
+                local pct = total > 0 and math.floor((op.votos / total) * 100) or 0
+                button({ class   = "enquete-opcao",
+                         onclick = "votarEnquete(" .. enq.id .. "," .. op.id .. ")",
+                         ["data-id"] = tostring(op.id) }, function()
+                  div({ class = "enquete-barra-bg" }, function()
+                    div({ class  = "enquete-barra-fill",
+                          style  = "width:" .. pct .. "%",
+                          ["data-pct"] = tostring(pct) })
+                  end)
+                  div({ class = "enquete-opcao-content" }, function()
+                    span({ class = "enquete-opcao-texto" }, op.texto)
+                    span({ class = "enquete-opcao-pct",
+                           ["data-votos"] = tostring(op.votos) },
+                      pct .. "% (" .. op.votos .. ")")
+                  end)
+                end)
+              end
+            end)
+            p({ class = "enquete-total", id = "enquete-total" },
+              tostring(total) .. " voto" .. (total == 1 and "" or "s"))
+          end)
+        end)
+      end
 
       -- Relacionadas
       if self.relacionadas and #self.relacionadas > 0 then
@@ -349,16 +403,6 @@ if self.voce_pode_gostar and #self.voce_pode_gostar > 0 then
       var NOTICIA_ID = %d;
       var NOVAS_CONQUISTAS = ]] .. (self.conquistas_json or "[]") .. [[;
 
-      // ── Tempo de leitura ─────────────────────────────────────────────
-      (function() {
-        var corpo = document.getElementById('noticia-corpo');
-        if (!corpo) return;
-        var palavras = corpo.innerText.split(/\s+/).length;
-        var mins     = Math.max(1, Math.round(palavras / 200));
-        var el = document.getElementById('tempo-leitura');
-        if (el) el.textContent = '~' + mins + ' min';
-      })();
-
       // ── Curtidas ─────────────────────────────────────────────────────
       function curtir(tipo) {
         fetch('/api/curtir/' + NOTICIA_ID, {
@@ -442,7 +486,37 @@ if self.voce_pode_gostar and #self.voce_pode_gostar > 0 then
         });
       })();
 
-      // ── Widget Clima Gamer ────────────────────────────────────────────
+      // ── Nota Rápida ─────────────────────────────────────────────────────
+      (function() {
+        var input  = document.getElementById('nota-rapida-input');
+        var status = document.getElementById('nota-status');
+        var chars  = document.getElementById('nota-chars');
+        if (!input) return;
+        chars.textContent = input.value.length + '/500';
+        var timer = null;
+        window.autoSaveNota = function(el) {
+          chars.textContent = el.value.length + '/500';
+          status.textContent = '...';
+          clearTimeout(timer);
+          timer = setTimeout(function() {
+            fetch('/api/nota/' + NOTICIA_ID, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+              body: 'texto=' + encodeURIComponent(el.value)
+            })
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+              if (data.status === 'ok') {
+                status.textContent = data.acao === 'deletada' ? '🗑 Removida' : '✅ Salva';
+                setTimeout(function() { status.textContent = ''; }, 2000);
+              }
+            })
+            .catch(function() { status.textContent = '❌ Erro'; });
+          }, 800);
+        };
+      })();
+
+            // ── Widget Clima Gamer ────────────────────────────────────────────
       // Simula status de servidores com base em horário/dia (sem API externa)
       (function() {
         var jogos = [

@@ -1,4 +1,3 @@
--- db.lua
 local sqlite3 = require("lsqlite3")
 
 local DB_PATH = "portal_gamer.db"
@@ -280,6 +279,39 @@ function M.connect()
     );
   ]])
 
+
+  -- Notas rápidas pessoais do leitor por notícia
+  db_conn:exec([[
+    CREATE TABLE IF NOT EXISTS notas_rapidas (
+      id            INTEGER PRIMARY KEY AUTOINCREMENT,
+      leitor_id     TEXT    NOT NULL,
+      noticia_id    INTEGER NOT NULL,
+      texto         TEXT    NOT NULL DEFAULT '',
+      criado_em     TEXT    NOT NULL DEFAULT (datetime('now')),
+      atualizado_em TEXT    NOT NULL DEFAULT (datetime('now')),
+      UNIQUE(leitor_id, noticia_id),
+      FOREIGN KEY (noticia_id) REFERENCES noticias(id) ON DELETE CASCADE
+    );
+  ]])
+
+  -- Crônicas/Editoriais
+  db_conn:exec([[
+    CREATE TABLE IF NOT EXISTS cronicas (
+      id          INTEGER PRIMARY KEY AUTOINCREMENT,
+      titulo      TEXT    NOT NULL,
+      subtitulo   TEXT    NOT NULL DEFAULT '',
+      conteudo    TEXT    NOT NULL,
+      autor_id    INTEGER,
+      imagem_url  TEXT    NOT NULL DEFAULT '',
+      tags_str    TEXT    NOT NULL DEFAULT '',
+      destaque    INTEGER NOT NULL DEFAULT 0,
+      publicar_em TEXT    NOT NULL DEFAULT '',
+      views       INTEGER NOT NULL DEFAULT 0,
+      criado_em   TEXT    NOT NULL DEFAULT (datetime('now')),
+      FOREIGN KEY (autor_id) REFERENCES autores(id) ON DELETE SET NULL
+    );
+  ]])
+
   return db_conn
 end
 
@@ -345,6 +377,11 @@ function M.get_noticias_paginado(pagina, por_pagina, categoria)
     "SELECT * FROM noticias %s ORDER BY destaque DESC, criado_em DESC LIMIT %d OFFSET %d",
     where, por_pagina, offset
   ))
+  for _, n in ipairs(rows) do
+    local palavras = 0
+    for _ in (n.conteudo or ""):gmatch("%S+") do palavras = palavras + 1 end
+    n.tempo_leitura = math.max(1, math.ceil(palavras / 200))
+  end
   return {
     rows = rows, total = total, pagina = pagina,
     por_pagina = por_pagina, total_paginas = math.ceil(total / por_pagina),
@@ -2094,5 +2131,179 @@ function M.limpar_historico_leituras(leitor_id)
   local conn = M.connect()
   conn:exec(string.format("DELETE FROM historico_leituras WHERE leitor_id = %s", escape(leitor_id)))
 end
+
+-- ─── Notas Rápidas ────────────────────────────────────────────────────────────
+
+function M.get_nota_rapida(leitor_id, noticia_id)
+  if not leitor_id or leitor_id == "" then return nil end
+  local rows = query(string.format(
+    "SELECT * FROM notas_rapidas WHERE leitor_id=%s AND noticia_id=%d LIMIT 1",
+    escape(leitor_id), tonumber(noticia_id)
+  ))
+  return rows[1]
+end
+
+function M.salvar_nota_rapida(leitor_id, noticia_id, texto)
+  if not leitor_id or leitor_id == "" then return false end
+  local conn = M.connect()
+  conn:exec(string.format([[
+    INSERT INTO notas_rapidas (leitor_id, noticia_id, texto, atualizado_em)
+    VALUES (%s, %d, %s, datetime('now'))
+    ON CONFLICT(leitor_id, noticia_id) DO UPDATE
+    SET texto=%s, atualizado_em=datetime('now')
+  ]], escape(leitor_id), tonumber(noticia_id), escape(texto), escape(texto)))
+  return true
+end
+
+function M.deletar_nota_rapida(leitor_id, noticia_id)
+  local conn = M.connect()
+  conn:exec(string.format(
+    "DELETE FROM notas_rapidas WHERE leitor_id=%s AND noticia_id=%d",
+    escape(leitor_id), tonumber(noticia_id)
+  ))
+end
+
+function M.get_notas_leitor(leitor_id)
+  if not leitor_id or leitor_id == "" then return {} end
+  return query(string.format([[
+    SELECT nr.*, n.titulo AS noticia_titulo, n.categoria, n.jogo
+    FROM notas_rapidas nr
+    JOIN noticias n ON n.id = nr.noticia_id
+    WHERE nr.leitor_id = %s
+    ORDER BY nr.atualizado_em DESC
+  ]], escape(leitor_id)))
+end
+
+-- ─── Crônicas / Editoriais ────────────────────────────────────────────────────
+
+function M.get_cronicas(apenas_publicadas)
+  if apenas_publicadas then
+    return query([[
+      SELECT c.*, a.nome AS autor_nome, a.avatar_url AS autor_avatar
+      FROM cronicas c
+      LEFT JOIN autores a ON a.id = c.autor_id
+      WHERE c.publicar_em = '' OR c.publicar_em <= datetime('now')
+      ORDER BY c.destaque DESC, c.criado_em DESC
+    ]])
+  end
+  return query([[
+    SELECT c.*, a.nome AS autor_nome, a.avatar_url AS autor_avatar
+    FROM cronicas c
+    LEFT JOIN autores a ON a.id = c.autor_id
+    ORDER BY c.criado_em DESC
+  ]])
+end
+
+function M.get_cronica(id)
+  local rows = query(string.format([[
+    SELECT c.*, a.nome AS autor_nome, a.avatar_url AS autor_avatar
+    FROM cronicas c
+    LEFT JOIN autores a ON a.id = c.autor_id
+    WHERE c.id = %d
+  ]], tonumber(id)))
+  return rows[1]
+end
+
+function M.criar_cronica(titulo, subtitulo, conteudo, autor_id, imagem_url, tags_str, destaque, publicar_em)
+  local conn = M.connect()
+  conn:exec(string.format(
+    "INSERT INTO cronicas (titulo,subtitulo,conteudo,autor_id,imagem_url,tags_str,destaque,publicar_em) VALUES (%s,%s,%s,%s,%s,%s,%d,%s)",
+    escape(titulo), escape(subtitulo or ""), escape(conteudo),
+    autor_id and tostring(tonumber(autor_id)) or "NULL",
+    escape(imagem_url or ""), escape(tags_str or ""),
+    destaque and 1 or 0, escape(publicar_em or "")
+  ))
+  return conn:last_insert_rowid()
+end
+
+function M.editar_cronica(id, titulo, subtitulo, conteudo, autor_id, imagem_url, tags_str, destaque, publicar_em)
+  local conn = M.connect()
+  conn:exec(string.format(
+    "UPDATE cronicas SET titulo=%s,subtitulo=%s,conteudo=%s,autor_id=%s,imagem_url=%s,tags_str=%s,destaque=%d,publicar_em=%s WHERE id=%d",
+    escape(titulo), escape(subtitulo or ""), escape(conteudo),
+    autor_id and tostring(tonumber(autor_id)) or "NULL",
+    escape(imagem_url or ""), escape(tags_str or ""),
+    destaque and 1 or 0, escape(publicar_em or ""),
+    tonumber(id)
+  ))
+end
+
+function M.deletar_cronica(id)
+  local conn = M.connect()
+  conn:exec("DELETE FROM cronicas WHERE id=" .. tonumber(id))
+end
+
+function M.incrementar_views_cronica(id)
+  local conn = M.connect()
+  conn:exec("UPDATE cronicas SET views=views+1 WHERE id=" .. tonumber(id))
+end
+
+-- ─── Exportação CSV ───────────────────────────────────────────────────────────
+
+function M.exportar_noticias_csv()
+  local rows = query([[
+    SELECT n.id, n.titulo, n.categoria, n.jogo, n.destaque, n.views,
+           n.likes, n.dislikes, n.criado_em, a.nome AS autor
+    FROM noticias n
+    LEFT JOIN autores a ON a.id = n.autor_id
+    ORDER BY n.criado_em DESC
+  ]])
+  local linhas = { "id,titulo,categoria,jogo,destaque,views,likes,dislikes,autor,criado_em" }
+  for _, r in ipairs(rows) do
+    local function csv_field(v)
+      v = tostring(v or "")
+      if v:find('[",\n]') then v = '"' .. v:gsub('"', '""') .. '"' end
+      return v
+    end
+    table.insert(linhas, table.concat({
+      csv_field(r.id), csv_field(r.titulo), csv_field(r.categoria),
+      csv_field(r.jogo), csv_field(r.destaque), csv_field(r.views),
+      csv_field(r.likes or 0), csv_field(r.dislikes or 0),
+      csv_field(r.autor or ""), csv_field(r.criado_em)
+    }, ","))
+  end
+  return table.concat(linhas, "\n")
+end
+
+function M.exportar_comentarios_csv()
+  local rows = query([[
+    SELECT c.id, c.autor, c.conteudo, c.aprovado, c.criado_em,
+           n.titulo AS noticia_titulo
+    FROM comentarios c
+    JOIN noticias n ON n.id = c.noticia_id
+    ORDER BY c.criado_em DESC
+  ]])
+  local linhas = { "id,autor,conteudo,aprovado,noticia,criado_em" }
+  for _, r in ipairs(rows) do
+    local function csv_field(v)
+      v = tostring(v or "")
+      if v:find('[",\n]') then v = '"' .. v:gsub('"', '""') .. '"' end
+      return v
+    end
+    table.insert(linhas, table.concat({
+      csv_field(r.id), csv_field(r.autor), csv_field(r.conteudo),
+      csv_field(r.aprovado), csv_field(r.noticia_titulo), csv_field(r.criado_em)
+    }, ","))
+  end
+  return table.concat(linhas, "\n")
+end
+
+function M.exportar_newsletter_csv()
+  local rows = query("SELECT id, email, criado_em FROM newsletter WHERE ativo=1 ORDER BY criado_em DESC")
+  local linhas = { "id,email,criado_em" }
+  for _, r in ipairs(rows) do
+    table.insert(linhas, tostring(r.id) .. "," .. r.email .. "," .. r.criado_em)
+  end
+  return table.concat(linhas, "\n")
+end
+
+-- ─── Tempo de leitura estimado ────────────────────────────────────────────────
+
+function M.tempo_leitura(texto)
+  local palavras = 0
+  for _ in (texto or ""):gmatch("%S+") do palavras = palavras + 1 end
+  return math.max(1, math.ceil(palavras / 200))
+end
+
 
 return M
