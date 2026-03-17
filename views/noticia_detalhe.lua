@@ -185,41 +185,8 @@ return Widget:extend(function(self)
           end)
         end)
 
-        -- Barra de ações: favorito + compartilhamento
-        div({ class = "noticia-acoes-bar" }, function()
-          -- Botão Favorito
-          button({ id      = "btn-favorito",
-                   class   = "acao-btn" .. (self.is_favorito and " acao-ativa" or ""),
-                   onclick = "toggleFavorito()",
-                   title   = self.is_favorito and "Remover dos favoritos" or "Adicionar aos favoritos" }, function()
-            span({ class = "acao-ico" }, self.is_favorito and "🔖" or "📌")
-            span({ id = "favorito-label", class = "acao-label" },
-              self.is_favorito and "Salvo" or "Salvar")
-          end)
-          -- Botão Compartilhar (Web Share API)
-          button({ id      = "btn-compartilhar",
-                   class   = "acao-btn",
-                   onclick = "compartilhar()",
-                   title   = "Compartilhar" }, function()
-            span({ class = "acao-ico" }, "📤")
-            span({ class = "acao-label" }, "Compartilhar")
-          end)
-          -- Botões de redes sociais (fallback)
-          div({ id = "social-links", class = "social-links" }, function()
-            local url   = "http://localhost:8080/noticias/" .. self.noticia.id
-            local titulo = self.noticia.titulo:gsub(" ", "%%20")
-            a({ href   = "https://twitter.com/intent/tweet?text=" .. titulo .. "&url=" .. url,
-                target = "_blank", class = "social-btn social-x", title = "X (Twitter)" }, "𝕏")
-            a({ href   = "https://wa.me/?text=" .. titulo .. "%%20" .. url,
-                target = "_blank", class = "social-btn social-wa", title = "WhatsApp" }, "💬")
-            a({ href   = "https://www.facebook.com/sharer/sharer.php?u=" .. url,
-                target = "_blank", class = "social-btn social-fb", title = "Facebook" }, "f")
-          end)
-        end)
-
         div({ class = "noticia-footer" }, function()
           a({ href = "/noticias", class = "btn-voltar" }, "← Voltar")
-          a({ href = "/favoritos", class = "btn-ver-mais" }, "🔖 Meus favoritos →")
         end)
       end)
 
@@ -363,13 +330,13 @@ if self.voce_pode_gostar and #self.voce_pode_gostar > 0 then
         end)
       end
 
-      -- ── Widget Clima Gamer ───────────────────────────────────────────────
+      -- ── Widget Jogos Online Agora ─────────────────────────────────────────
       div({ class = "sidebar-widget shadow-card clima-widget" }, function()
-        h3("🌡 Status dos Servidores")
-        div({ id = "clima-lista", class = "clima-lista" }, function()
-          p({ class = "clima-loading" }, "Verificando status...")
+        h3("🟢 Jogos Online Agora")
+        div({ id = "jogos-online-lista", class = "clima-lista" }, function()
+          p({ class = "clima-loading" }, "Carregando status...")
         end)
-        p({ class = "clima-footer" }, "Atualizado via ping de popularidade")
+        p({ id = "jogos-online-hora", class = "clima-footer" }, "Atualizando...")
       end)
 
     end)
@@ -474,85 +441,48 @@ if self.voce_pode_gostar and #self.voce_pode_gostar > 0 then
         });
       })();
 
-      // ── Favorito ─────────────────────────────────────────────────────
-      function toggleFavorito() {
-        fetch('/api/favorito/' + NOTICIA_ID, { method: 'POST' })
-          .then(function(r) { return r.json(); })
-          .then(function(data) {
-            if (data.status !== 'ok') return;
-            var btn   = document.getElementById('btn-favorito');
-            var label = document.getElementById('favorito-label');
-            var ico   = btn ? btn.querySelector('.acao-ico') : null;
-            if (data.favoritado) {
-              if (btn)   btn.classList.add('acao-ativa');
-              if (ico)   ico.textContent = '🔖';
-              if (label) label.textContent = 'Salvo';
-            } else {
-              if (btn)   btn.classList.remove('acao-ativa');
-              if (ico)   ico.textContent = '📌';
-              if (label) label.textContent = 'Salvar';
-            }
-          })
-          .catch(function() {});
-      }
-
-      // ── Compartilhamento ──────────────────────────────────────────────
-      function compartilhar() {
-        var dados = {
-          title: document.title,
-          text:  document.querySelector('h2') ? document.querySelector('h2').textContent : document.title,
-          url:   window.location.href
-        };
-        if (navigator.share) {
-          navigator.share(dados).catch(function() {});
-        } else {
-          // Fallback: mostra os botões de redes sociais
-          var social = document.getElementById('social-links');
-          if (social) {
-            social.classList.toggle('social-visivel');
-          }
-        }
-      }
-
-            // ── Widget Clima Gamer ────────────────────────────────────────────
-      // Simula status de servidores com base em horário/dia (sem API externa)
+      // ── Widget Jogos Online Agora ─────────────────────────────────────
       (function() {
-        var jogos = [
-          { nome: "Valorant",          cor: "#f43f5e" },
-          { nome: "CS2",               cor: "#f59e0b" },
-          { nome: "League of Legends", cor: "#6366f1" },
-          { nome: "Fortnite",          cor: "#22c55e" },
-          { nome: "Minecraft",         cor: "#84cc16" },
-        ];
-
-        var hora = new Date().getHours();
-        // Pico de jogadores: 18h-23h = lotado
-        var base = (hora >= 18 && hora <= 23) ? 80
-                 : (hora >= 12 && hora <= 17) ? 60
-                 : (hora >= 8  && hora <= 11) ? 40 : 25;
-
-        var lista = document.getElementById('clima-lista');
+        var lista = document.getElementById('jogos-online-lista');
+        var horaEl = document.getElementById('jogos-online-hora');
         if (!lista) return;
 
-        var html = '';
-        jogos.forEach(function(j) {
-          var variacao = Math.floor(Math.random() * 20) - 10;
-          var carga    = Math.min(100, Math.max(5, base + variacao));
-          var status   = carga >= 85 ? 'Lotado'
-                       : carga >= 60 ? 'Cheio'
-                       : carga >= 35 ? 'Normal' : 'Tranquilo';
-          var cor      = carga >= 85 ? '#f43f5e'
-                       : carga >= 60 ? '#f59e0b'
-                       : carga >= 35 ? '#4ade80' : '#94a3b8';
-          html += '<div class="clima-item">' +
-            '<span class="clima-nome">' + j.nome + '</span>' +
-            '<div class="clima-barra-wrapper">' +
-              '<div class="clima-barra" style="width:' + carga + '%%;background:' + cor + '"></div>' +
-            '</div>' +
-            '<span class="clima-status" style="color:' + cor + '">' + status + '</span>' +
-          '</div>';
-        });
-        lista.innerHTML = html;
+        function formatar(n) {
+          if (n >= 1000000) return (n/1000000).toFixed(1)+'M';
+          if (n >= 1000)    return (n/1000).toFixed(0)+'K';
+          return String(n);
+        }
+
+        function carregar() {
+          fetch('/api/jogos-online')
+            .then(function(r){ return r.json(); })
+            .then(function(data) {
+              if (data.status !== 'ok' || !data.jogos) {
+                lista.innerHTML = '<p class="clima-loading">Erro ao carregar.</p>';
+                return;
+              }
+              var max = data.jogos.reduce(function(m,j){ return Math.max(m, j.players_online||0); }, 1);
+              var html = '';
+              data.jogos.forEach(function(j) {
+                var pct = max > 0 ? Math.round((j.players_online/max)*100) : 0;
+                var cor = j.status_cor || '#94a3b8';
+                html += '<div class="clima-item">' +
+                  '<span class="clima-nome">' + j.nome + '</span>' +
+                  '<div class="clima-barra-wrapper">' +
+                    '<div class="clima-barra" style="width:'+pct+'%%;background:'+cor+'"></div>' +
+                  '</div>' +
+                  '<span class="clima-status" style="color:'+cor+'">' +
+                    formatar(j.players_online) +
+                  '</span>' +
+                '</div>';
+              });
+              lista.innerHTML = html;
+              if (horaEl) horaEl.textContent = 'Atualizado às ' + (data.hora||'') + ' · dados ao vivo';
+            })
+            .catch(function(){ lista.innerHTML='<p class="clima-loading">Sem dados.</p>'; });
+        }
+        carregar();
+        setInterval(carregar, 120000); // Atualiza a cada 2min
       })();
     ]], self.noticia.id))
   end)

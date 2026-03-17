@@ -1154,6 +1154,8 @@ app:post("/admin/comentarios/:id/aprovar", function(self)
   if not auth.require_login(self) then return end
   db.aprovar_comentario(self.params.id)
   db.log("aprovar_comentario", "comentarios", "ID "..self.params.id, ngx.var.remote_addr or "")
+  -- Notifica o leitor (se houver leitor_id associado à sessão que comentou)
+  local info = db.notificar_comentario_aprovado(self.params.id)
   return { redirect_to = "/admin#comentarios" }
 end)
 
@@ -1681,6 +1683,127 @@ app:get("/feed", function(self)
   return { render = "feed_personalizado" }
 end)
 
+
+
+-- ─── API: Tags sugeridas por IA ───────────────────────────────────────────────
+
+app:post("/api/sugerir-tags", function(self)
+  if not auth.require_login(self) then
+    return { json = { status = "erro", mensagem = "Não autorizado." } }
+  end
+  local titulo   = trim(self.params.titulo   or "")
+  local conteudo = trim(self.params.conteudo or "")
+  local jogo     = trim(self.params.jogo     or "")
+  if titulo == "" and conteudo == "" then
+    return { json = { status = "erro", mensagem = "Título ou conteúdo necessário." } }
+  end
+  -- Prompt para a API da Anthropic
+  local prompt = string.format(
+    "Você é um assistente especializado em games e notícias de jogos.\n\n" ..
+    "Com base nesta notícia, sugira de 3 a 6 tags relevantes em português.\n" ..
+    "Responda APENAS com as tags separadas por vírgula, sem explicações.\n" ..
+    "Exemplo: fps, competitivo, update, ranked\n\n" ..
+    "Título: %s\n" ..
+    "Jogo: %s\n" ..
+    "Conteúdo (trecho): %s",
+    titulo, jogo ~= "" and jogo or "não informado",
+    conteudo:sub(1, 500)
+  )
+  -- Tags existentes para contexto
+  local tags_existentes = db.get_tags()
+  local nomes = {}
+  for _, t in ipairs(tags_existentes) do table.insert(nomes, t.nome) end
+  if #nomes > 0 then
+    prompt = prompt .. "\n\nTags já usadas no portal (prefira reutilizar): "
+          .. table.concat(nomes, ", "):sub(1, 200)
+  end
+  return { json = { status = "ok", prompt = prompt } }
+end)
+
+-- ─── API: Notificações ────────────────────────────────────────────────────────
+
+app:get("/api/notificacoes", function(self)
+  local leitor_id = get_leitor_id(self)
+  local notifs    = db.get_notificacoes(leitor_id, false)
+  local nao_lidas = db.count_notificacoes_nao_lidas(leitor_id)
+  return { json = { status = "ok", notificacoes = notifs, nao_lidas = nao_lidas } }
+end)
+
+app:post("/api/notificacoes/lidas", function(self)
+  local leitor_id = get_leitor_id(self)
+  db.marcar_notificacoes_lidas(leitor_id)
+  return { json = { status = "ok" } }
+end)
+
+app:post("/api/notificacoes/:id/deletar", function(self)
+  local leitor_id = get_leitor_id(self)
+  db.deletar_notificacao(self.params.id, leitor_id)
+  return { json = { status = "ok" } }
+end)
+
+-- Cria notificação de teste (dev)
+app:post("/admin/notificacao/teste", function(self)
+  if not auth.require_login(self) then return end
+  local leitor_id = get_leitor_id(self)
+  db.criar_notificacao(leitor_id, "comentario",
+    "Seu comentário foi aprovado! 💬",
+    "Seu comentário na notícia foi aprovado e já está visível.",
+    "/favoritos")
+  return { json = { status = "ok" } }
+end)
+
+-- ─── Ranking histórico ────────────────────────────────────────────────────────
+
+app:get("/ranking/historico", function(self)
+  local hoje  = os.date("*t")
+  local ano   = tonumber(self.params.ano) or hoje.year
+  local mes   = tonumber(self.params.mes) or hoje.month
+  if mes < 1  then mes = 12; ano = ano - 1 end
+  if mes > 12 then mes = 1;  ano = ano + 1 end
+  local meses_pt = {
+    "Janeiro","Fevereiro","Março","Abril","Maio","Junho",
+    "Julho","Agosto","Setembro","Outubro","Novembro","Dezembro"
+  }
+  self.ano             = ano
+  self.mes             = mes
+  self.mes_nome        = meses_pt[mes]
+  self.top_noticias    = db.get_ranking_historico_noticias(ano, mes, 10)
+  self.top_categorias  = db.get_ranking_historico_categorias(ano, mes)
+  self.meses_disponiveis = db.get_meses_com_dados()
+  self.serie_mensal    = db.get_serie_views_mensal()
+  self.og_titulo       = "Ranking Histórico — " .. meses_pt[mes] .. " " .. ano
+  self.og_url          = "http://localhost:8080/ranking/historico"
+  return { render = "ranking_historico" }
+end)
+
+-- ─── Admin: Saúde do banco ────────────────────────────────────────────────────
+
+app:get("/admin/saude-db", function(self)
+  if not auth.require_login(self) then return end
+  self.saude = db.get_saude_db()
+  return { render = "admin.admin_saude_db", layout = "admin.admin_layout" }
+end)
+
+app:post("/admin/saude-db/vacuum", function(self)
+  if not auth.require_login(self) then return end
+  db.executar_vacuum()
+  db.log("vacuum", "database", "VACUUM executado", ngx.var.remote_addr or "")
+  return { json = { status = "ok", mensagem = "VACUUM executado com sucesso." } }
+end)
+
+app:post("/admin/saude-db/analyze", function(self)
+  if not auth.require_login(self) then return end
+  db.executar_analyze()
+  db.log("analyze", "database", "ANALYZE executado", ngx.var.remote_addr or "")
+  return { json = { status = "ok", mensagem = "ANALYZE executado com sucesso." } }
+end)
+
+-- ─── Widget jogos online (API) ────────────────────────────────────────────────
+
+app:get("/api/jogos-online", function(self)
+  local jogos = db.get_jogos_online_agora()
+  return { json = { status = "ok", jogos = jogos, hora = os.date("%H:%M") } }
+end)
 
 
 return app

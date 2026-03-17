@@ -70,6 +70,26 @@ return Widget:extend(function(self)
             end)
             
             a({ href = "/perfil", class = "nav-perfil-btn" }, (self.leitor_icon or "👤") .. " " .. (self.leitor_nome or "Perfil"))
+            -- Sino de notificações
+            div({ class = "notif-wrapper", id = "notif-wrapper" }, function()
+              button({ id    = "notif-btn",
+                       class = "search-toggle-btn notif-btn",
+                       title = "Notificações",
+                       onclick = "toggleNotificacoes()" }, function()
+                span("🔔")
+                span({ id = "notif-badge", class = "notif-badge", style = "display:none" }, "0")
+              end)
+              div({ id = "notif-dropdown", class = "notif-dropdown" }, function()
+                div({ class = "notif-header" }, function()
+                  span({ class = "notif-titulo" }, "Notificações")
+                  button({ class = "notif-marcar-btn",
+                           onclick = "marcarTodasLidas()" }, "Marcar como lidas")
+                end)
+                div({ id = "notif-lista", class = "notif-lista" }, function()
+                  p({ class = "notif-vazia" }, "Sem notificações.")
+                end)
+              end)
+            end)
             
             button({ id = "tema-toggle", class = "tema-btn",
                      title = "Alternar tema", onclick = "toggleTema()" }, "☀️")
@@ -275,6 +295,74 @@ return Widget:extend(function(self)
                 }
               })
               .catch(function() { widget.style.display = 'none'; });
+          })();
+
+          // ── Notificações in-app ───────────────────────────────────────────
+          (function() {
+            var POLL_INTERVAL = 30000; // 30s
+            var dropdown = document.getElementById('notif-dropdown');
+            var badge    = document.getElementById('notif-badge');
+            var lista    = document.getElementById('notif-lista');
+
+            function carregarNotifs() {
+              fetch('/api/notificacoes')
+                .then(function(r){ return r.json(); })
+                .then(function(data) {
+                  if (data.status !== 'ok') return;
+                  var naoLidas = data.nao_lidas || 0;
+                  if (badge) {
+                    badge.textContent = naoLidas > 9 ? '9+' : String(naoLidas);
+                    badge.style.display = naoLidas > 0 ? 'flex' : 'none';
+                  }
+                  if (!lista) return;
+                  if (!data.notificacoes || data.notificacoes.length === 0) {
+                    lista.innerHTML = '<p class="notif-vazia">Sem notificações.</p>';
+                    return;
+                  }
+                  var html = '';
+                  data.notificacoes.forEach(function(n) {
+                    var cls = 'notif-item' + (n.lida ? '' : ' notif-nao-lida');
+                    html += '<div class="' + cls + '">';
+                    if (n.link && n.link !== '') {
+                      html += '<a href="' + n.link + '" class="notif-link">';
+                    }
+                    html += '<div class="notif-item-titulo">' + n.titulo + '</div>';
+                    if (n.mensagem) html += '<div class="notif-item-msg">' + n.mensagem + '</div>';
+                    html += '<div class="notif-item-data">' + n.criado_em.substring(0,16) + '</div>';
+                    if (n.link && n.link !== '') html += '</a>';
+                    html += '<button class="notif-del" onclick="deletarNotif(' + n.id + ')">✕</button>';
+                    html += '</div>';
+                  });
+                  lista.innerHTML = html;
+                })
+                .catch(function(){});
+            }
+
+            window.toggleNotificacoes = function() {
+              if (!dropdown) return;
+              var aberto = dropdown.classList.toggle('notif-aberto');
+              if (aberto) carregarNotifs();
+            };
+            window.marcarTodasLidas = function() {
+              fetch('/api/notificacoes/lidas', { method: 'POST' })
+                .then(function(){ carregarNotifs(); });
+            };
+            window.deletarNotif = function(id) {
+              fetch('/api/notificacoes/' + id + '/deletar', { method: 'POST' })
+                .then(function(){ carregarNotifs(); });
+            };
+
+            // Fecha ao clicar fora
+            document.addEventListener('click', function(e) {
+              var w = document.getElementById('notif-wrapper');
+              if (w && !w.contains(e.target) && dropdown) {
+                dropdown.classList.remove('notif-aberto');
+              }
+            });
+
+            // Poll periódico
+            carregarNotifs();
+            setInterval(carregarNotifs, POLL_INTERVAL);
           })();
 
         ]])
