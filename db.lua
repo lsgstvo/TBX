@@ -313,6 +313,30 @@ function M.connect()
   ]])
 
 
+  -- Galeria de imagens dos jogos
+  db_conn:exec([[
+    CREATE TABLE IF NOT EXISTS galeria (
+      id         INTEGER PRIMARY KEY AUTOINCREMENT,
+      jogo_id    INTEGER NOT NULL,
+      url        TEXT    NOT NULL,
+      legenda    TEXT    NOT NULL DEFAULT '',
+      criado_em  TEXT    NOT NULL DEFAULT (datetime('now')),
+      FOREIGN KEY (jogo_id) REFERENCES jogos(id) ON DELETE CASCADE
+    );
+  ]])
+
+  -- Favoritos/bookmarks do leitor
+  db_conn:exec([[
+    CREATE TABLE IF NOT EXISTS favoritos (
+      id         INTEGER PRIMARY KEY AUTOINCREMENT,
+      leitor_id  TEXT    NOT NULL,
+      noticia_id INTEGER NOT NULL,
+      criado_em  TEXT    NOT NULL DEFAULT (datetime('now')),
+      UNIQUE(leitor_id, noticia_id),
+      FOREIGN KEY (noticia_id) REFERENCES noticias(id) ON DELETE CASCADE
+    );
+  ]])
+
   -- Glossário gamer
   db_conn:exec([[
     CREATE TABLE IF NOT EXISTS glossario (
@@ -2382,8 +2406,7 @@ function M.editar_termo(id, termo, definicao, categoria)
   local conn = M.connect()
   conn:exec(string.format(
     "UPDATE glossario SET termo=%s, definicao=%s, categoria=%s WHERE id=%d",
-    escape(termo), escape(definicao or ""), escape(categoria or "Geral"),
-    tonumber(id)
+    escape(termo), escape(definicao or ""), escape(categoria or "Geral"), tonumber(id)
   ))
 end
 
@@ -2413,7 +2436,6 @@ end
 
 function M.criar_ab_teste(noticia_id, titulo_b)
   local conn = M.connect()
-  -- Desativa testes anteriores desta notícia
   conn:exec("UPDATE ab_testes SET ativo=0 WHERE noticia_id=" .. tonumber(noticia_id))
   conn:exec(string.format(
     "INSERT INTO ab_testes (noticia_id, titulo_b) VALUES (%d, %s)",
@@ -2423,7 +2445,6 @@ function M.criar_ab_teste(noticia_id, titulo_b)
 end
 
 function M.registrar_view_ab(teste_id, variante)
-  -- variante: "a" ou "b"
   local conn = M.connect()
   local col = variante == "b" and "views_b" or "views_a"
   conn:exec(string.format(
@@ -2464,116 +2485,192 @@ end
 
 -- ─── Feed personalizado ───────────────────────────────────────────────────────
 
--- Retorna notícias recomendadas para um leitor baseado no histórico
 function M.get_feed_personalizado(leitor_id, limite)
   limite = tonumber(limite) or 10
   if not leitor_id or leitor_id == "" then
-    -- Sem histórico: retorna as mais vistas recentes
     return query(string.format([[
       SELECT * FROM noticias
       WHERE publicar_em = '' OR publicar_em <= datetime('now')
-      ORDER BY views DESC, criado_em DESC
-      LIMIT %d
+      ORDER BY views DESC, criado_em DESC LIMIT %d
     ]], limite))
   end
-
-  -- Categorias preferidas do leitor (do histórico de leituras)
   local cats = query(string.format([[
     SELECT n.categoria, COUNT(*) AS peso
     FROM historico_leituras hl
     JOIN noticias n ON n.id = hl.noticia_id
     WHERE hl.leitor_id = %s
-    GROUP BY n.categoria
-    ORDER BY peso DESC
-    LIMIT 3
+    GROUP BY n.categoria ORDER BY peso DESC LIMIT 3
   ]], escape(leitor_id)))
-
-  -- Tags preferidas
   local tags = query(string.format([[
     SELECT t.nome, COUNT(*) AS peso
     FROM historico_leituras hl
     JOIN noticia_tags nt ON nt.noticia_id = hl.noticia_id
     JOIN tags t ON t.id = nt.tag_id
     WHERE hl.leitor_id = %s
-    GROUP BY t.nome
-    ORDER BY peso DESC
-    LIMIT 5
+    GROUP BY t.nome ORDER BY peso DESC LIMIT 5
   ]], escape(leitor_id)))
-
-  -- IDs já lidos
   local lidos = query(string.format(
-    "SELECT noticia_id FROM historico_leituras WHERE leitor_id=%s",
-    escape(leitor_id)
+    "SELECT noticia_id FROM historico_leituras WHERE leitor_id=%s", escape(leitor_id)
   ))
   local lidos_ids = {}
   for _, r in ipairs(lidos) do lidos_ids[r.noticia_id] = true end
-
-  -- Busca candidatas por categoria + tags
-  local candidatas = {}
-  local vistas = {}
-
-  -- Por categoria preferida
+  local candidatas, vistas = {}, {}
   for _, cat in ipairs(cats) do
     local rows = query(string.format([[
       SELECT *, %d AS relevancia FROM noticias
-      WHERE categoria = %s
-        AND (publicar_em = '' OR publicar_em <= datetime('now'))
-      ORDER BY views DESC, criado_em DESC
-      LIMIT 20
-    ]], cat.peso * 3, escape(cat.categoria)))
+      WHERE categoria=%s AND (publicar_em='' OR publicar_em<=datetime('now'))
+      ORDER BY views DESC, criado_em DESC LIMIT 20
+    ]], cat.peso*3, escape(cat.categoria)))
     for _, n in ipairs(rows) do
       if not lidos_ids[n.id] and not vistas[n.id] then
-        vistas[n.id] = true
-        table.insert(candidatas, n)
+        vistas[n.id]=true; table.insert(candidatas, n)
       end
     end
   end
-
-  -- Por tags preferidas
   for _, tag in ipairs(tags) do
     local rows = query(string.format([[
       SELECT n.*, %d AS relevancia FROM noticias n
-      JOIN noticia_tags nt ON nt.noticia_id = n.id
-      JOIN tags t ON t.id = nt.tag_id
-      WHERE t.nome = %s
-        AND (n.publicar_em = '' OR n.publicar_em <= datetime('now'))
+      JOIN noticia_tags nt ON nt.noticia_id=n.id
+      JOIN tags t ON t.id=nt.tag_id
+      WHERE t.nome=%s AND (n.publicar_em='' OR n.publicar_em<=datetime('now'))
       ORDER BY n.views DESC LIMIT 10
-    ]], tag.peso * 2, escape(tag.nome)))
+    ]], tag.peso*2, escape(tag.nome)))
     for _, n in ipairs(rows) do
       if not lidos_ids[n.id] and not vistas[n.id] then
-        vistas[n.id] = true
-        table.insert(candidatas, n)
+        vistas[n.id]=true; table.insert(candidatas, n)
       end
     end
   end
-
-  -- Ordena por relevancia desc, preenche com recentes se necessário
-  table.sort(candidatas, function(a, b)
-    return (a.relevancia or 0) > (b.relevancia or 0)
-  end)
-
+  table.sort(candidatas, function(a,b) return (a.relevancia or 0)>(b.relevancia or 0) end)
   if #candidatas < limite then
     local extras = query(string.format([[
       SELECT * FROM noticias
-      WHERE publicar_em = '' OR publicar_em <= datetime('now')
-      ORDER BY criado_em DESC
-      LIMIT %d
-    ]], limite * 2))
+      WHERE publicar_em='' OR publicar_em<=datetime('now')
+      ORDER BY criado_em DESC LIMIT %d
+    ]], limite*2))
     for _, n in ipairs(extras) do
       if not lidos_ids[n.id] and not vistas[n.id] then
-        vistas[n.id] = true
-        table.insert(candidatas, n)
+        vistas[n.id]=true; table.insert(candidatas, n)
+        if #candidatas>=limite then break end
       end
-      if #candidatas >= limite then break end
     end
   end
-
-  -- Corta no limite
   local resultado = {}
-  for i = 1, math.min(limite, #candidatas) do
-    table.insert(resultado, candidatas[i])
-  end
+  for i=1,math.min(limite,#candidatas) do table.insert(resultado, candidatas[i]) end
   return resultado
+end
+
+-- ─── Galeria de imagens dos jogos ────────────────────────────────────────────
+
+function M.get_galeria_jogo(jogo_id)
+  return query(string.format(
+    "SELECT * FROM galeria WHERE jogo_id=%d ORDER BY criado_em DESC",
+    tonumber(jogo_id)
+  ))
+end
+
+function M.get_galeria_todas()
+  return query([[
+    SELECT g.*, j.nome AS jogo_nome
+    FROM galeria g
+    JOIN jogos j ON j.id = g.jogo_id
+    ORDER BY g.criado_em DESC
+  ]])
+end
+
+function M.adicionar_imagem_galeria(jogo_id, url, legenda)
+  local conn = M.connect()
+  conn:exec(string.format(
+    "INSERT INTO galeria (jogo_id, url, legenda) VALUES (%d, %s, %s)",
+    tonumber(jogo_id), escape(url), escape(legenda or "")
+  ))
+  return conn:last_insert_rowid()
+end
+
+function M.deletar_imagem_galeria(id)
+  local conn = M.connect()
+  conn:exec("DELETE FROM galeria WHERE id=" .. tonumber(id))
+end
+
+-- ─── Favoritos / Bookmarks ────────────────────────────────────────────────────
+
+function M.get_favoritos(leitor_id)
+  if not leitor_id or leitor_id == "" then return {} end
+  return query(string.format([[
+    SELECT n.*, f.criado_em AS favoritado_em
+    FROM favoritos f
+    JOIN noticias n ON n.id = f.noticia_id
+    WHERE f.leitor_id = %s
+    ORDER BY f.criado_em DESC
+  ]], escape(leitor_id)))
+end
+
+function M.is_favorito(leitor_id, noticia_id)
+  if not leitor_id or leitor_id == "" then return false end
+  local rows = query(string.format(
+    "SELECT id FROM favoritos WHERE leitor_id=%s AND noticia_id=%d LIMIT 1",
+    escape(leitor_id), tonumber(noticia_id)
+  ))
+  return #rows > 0
+end
+
+function M.toggle_favorito(leitor_id, noticia_id)
+  if not leitor_id or leitor_id == "" then return false end
+  local conn = M.connect()
+  if M.is_favorito(leitor_id, noticia_id) then
+    conn:exec(string.format(
+      "DELETE FROM favoritos WHERE leitor_id=%s AND noticia_id=%d",
+      escape(leitor_id), tonumber(noticia_id)
+    ))
+    return false  -- removido
+  else
+    conn:exec(string.format(
+      "INSERT INTO favoritos (leitor_id, noticia_id) VALUES (%s, %d)",
+      escape(leitor_id), tonumber(noticia_id)
+    ))
+    return true   -- adicionado
+  end
+end
+
+function M.count_favoritos(leitor_id)
+  if not leitor_id or leitor_id == "" then return 0 end
+  local r = query(string.format(
+    "SELECT COUNT(*) AS n FROM favoritos WHERE leitor_id=%s", escape(leitor_id)
+  ))
+  return r[1] and r[1].n or 0
+end
+
+function M.limpar_favoritos(leitor_id)
+  if not leitor_id or leitor_id == "" then return end
+  local conn = M.connect()
+  conn:exec(string.format("DELETE FROM favoritos WHERE leitor_id=%s", escape(leitor_id)))
+end
+
+-- ─── Calendário de agendamento ────────────────────────────────────────────────
+
+-- Retorna notícias agendadas para um mês específico
+function M.get_calendario(ano, mes)
+  local inicio = string.format("%04d-%02d-01", ano, mes)
+  local fim    = string.format("%04d-%02d-31", ano, mes)
+  return query(string.format([[
+    SELECT id, titulo, publicar_em, destaque, categoria
+    FROM noticias
+    WHERE publicar_em != '' AND publicar_em BETWEEN %s AND %s
+    ORDER BY publicar_em ASC
+  ]], escape(inicio), escape(fim .. " 23:59:59")))
+end
+
+-- Retorna notícias publicadas em um mês (para o calendário)
+function M.get_calendario_publicadas(ano, mes)
+  local inicio = string.format("%04d-%02d-01", ano, mes)
+  local fim    = string.format("%04d-%02d-31", ano, mes)
+  return query(string.format([[
+    SELECT id, titulo, criado_em, destaque, categoria
+    FROM noticias
+    WHERE (publicar_em='' OR publicar_em<=datetime('now'))
+      AND criado_em BETWEEN %s AND %s
+    ORDER BY criado_em ASC
+  ]], escape(inicio), escape(fim .. " 23:59:59")))
 end
 
 

@@ -127,6 +127,7 @@ app:get("/perfil", function(self)
   self.leitor_avatar      = config.avatar
   self.leitor_nome        = config.nome or "Perfil"
   self.leitor_icon        = get_leitor_avatar(self) -- Para o header
+  self.favoritos          = db.get_favoritos(lid)
   self.og_titulo          = "Meu Perfil — Portal Gamer"
   self.og_url             = "http://localhost:8080/perfil"
   return { render = "perfil_leitor" }
@@ -1385,6 +1386,128 @@ end)
 
 
 
+-- ─── Galeria de jogos ─────────────────────────────────────────────────────────
+
+app:get("/galeria", function(self)
+  self.jogos          = db.get_jogos()
+  self.imagens        = db.get_galeria_todas()
+  self.jogo_filtro    = trim(self.params.jogo or "")
+  if self.jogo_filtro ~= "" then
+    local jogo = db.get_jogo_por_nome(self.jogo_filtro)
+    if jogo then
+      self.imagens     = db.get_galeria_jogo(jogo.id)
+      self.jogo_atual  = jogo
+    end
+  end
+  self.og_titulo    = "Galeria de Jogos — Portal Gamer"
+  self.og_url       = "http://localhost:8080/galeria"
+  return { render = "galeria" }
+end)
+
+app:post("/admin/galeria/adicionar", function(self)
+  if not auth.require_login(self) then return end
+  local jogo_id = tonumber(self.params.jogo_id)
+  local url     = trim(self.params.url or "")
+  if not jogo_id or url == "" then
+    return { redirect_to = "/admin/galeria" }
+  end
+  db.adicionar_imagem_galeria(jogo_id, url, trim(self.params.legenda))
+  return { redirect_to = "/admin/galeria" }
+end)
+
+app:post("/admin/galeria/:id/deletar", function(self)
+  if not auth.require_login(self) then return end
+  db.deletar_imagem_galeria(self.params.id)
+  return { redirect_to = "/admin/galeria" }
+end)
+
+app:get("/admin/galeria", function(self)
+  if not auth.require_login(self) then return end
+  self.imagens = db.get_galeria_todas()
+  self.jogos   = db.get_jogos()
+  return { render = "admin.admin_galeria", layout = "admin.admin_layout" }
+end)
+
+-- ─── Favoritos ────────────────────────────────────────────────────────────────
+
+app:post("/api/favorito/:id", function(self)
+  local leitor_id = get_leitor_id(self)
+  local noticia   = db.get_noticia(self.params.id)
+  if not noticia then
+    return { json = { status = "erro", mensagem = "Notícia não encontrada." } }
+  end
+  local adicionado = db.toggle_favorito(leitor_id, self.params.id)
+  return { json = {
+    status      = "ok",
+    favoritado  = adicionado,
+    total       = db.count_favoritos(leitor_id),
+  }}
+end)
+
+app:get("/favoritos", function(self)
+  local leitor_id    = get_leitor_id(self)
+  self.favoritos     = db.get_favoritos(leitor_id)
+  self.total         = db.count_favoritos(leitor_id)
+  self.og_titulo     = "Meus Favoritos — Portal Gamer"
+  self.og_url        = "http://localhost:8080/favoritos"
+  return { render = "favoritos" }
+end)
+
+app:post("/favoritos/limpar", function(self)
+  db.limpar_favoritos(get_leitor_id(self))
+  return { redirect_to = "/favoritos" }
+end)
+
+-- ─── Calendário de agendamento (admin) ───────────────────────────────────────
+
+app:get("/admin/calendario", function(self)
+  if not auth.require_login(self) then return end
+  local hoje  = os.date("*t")
+  local ano   = tonumber(self.params.ano)  or hoje.year
+  local mes   = tonumber(self.params.mes)  or hoje.month
+  -- Garante limites válidos
+  if mes < 1  then mes = 12; ano = ano - 1 end
+  if mes > 12 then mes = 1;  ano = ano + 1 end
+  self.ano             = ano
+  self.mes             = mes
+  self.agendadas       = db.get_calendario(ano, mes)
+  self.publicadas      = db.get_calendario_publicadas(ano, mes)
+  self.hoje_dia        = hoje.day
+  self.hoje_mes        = hoje.month
+  self.hoje_ano        = hoje.year
+  -- Nomes dos meses em português
+  local meses_pt = {
+    "Janeiro","Fevereiro","Março","Abril","Maio","Junho",
+    "Julho","Agosto","Setembro","Outubro","Novembro","Dezembro"
+  }
+  self.mes_nome        = meses_pt[mes]
+  -- Dia da semana do 1º do mês (0=dom, 1=seg...)
+  local primeiro       = os.time({ year=ano, month=mes, day=1 })
+  self.dia_semana_inicio = os.date("*t", primeiro).wday - 1  -- 0=dom
+  self.dias_no_mes     = os.date("*t",
+    os.time({ year=ano, month=mes+1, day=0 })).day
+  -- Monta mapa dia->eventos
+  local eventos = {}
+  for _, n in ipairs(self.agendadas) do
+    local dia = tonumber(n.publicar_em:sub(9,10))
+    if dia then
+      eventos[dia] = eventos[dia] or {}
+      n._tipo = "agendada"
+      table.insert(eventos[dia], n)
+    end
+  end
+  for _, n in ipairs(self.publicadas) do
+    local dia = tonumber(n.criado_em:sub(9,10))
+    if dia then
+      eventos[dia] = eventos[dia] or {}
+      n._tipo = "publicada"
+      table.insert(eventos[dia], n)
+    end
+  end
+  self.eventos = eventos
+  return { render = "admin.admin_calendario", layout = "admin.admin_layout" }
+end)
+
 -- ─── Glossário ────────────────────────────────────────────────────────────────
 
 app:get("/glossario", function(self)
@@ -1557,6 +1680,7 @@ app:get("/feed", function(self)
   self.og_url       = "http://localhost:8080/feed"
   return { render = "feed_personalizado" }
 end)
+
 
 
 return app
