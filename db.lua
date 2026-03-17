@@ -312,6 +312,43 @@ function M.connect()
     );
   ]])
 
+
+  -- Glossário gamer
+  db_conn:exec([[
+    CREATE TABLE IF NOT EXISTS glossario (
+      id         INTEGER PRIMARY KEY AUTOINCREMENT,
+      termo      TEXT    NOT NULL UNIQUE,
+      definicao  TEXT    NOT NULL,
+      categoria  TEXT    NOT NULL DEFAULT 'Geral',
+      criado_em  TEXT    NOT NULL DEFAULT (datetime('now'))
+    );
+  ]])
+
+  -- A/B test de títulos de notícias
+  db_conn:exec([[
+    CREATE TABLE IF NOT EXISTS ab_testes (
+      id         INTEGER PRIMARY KEY AUTOINCREMENT,
+      noticia_id INTEGER NOT NULL,
+      titulo_b   TEXT    NOT NULL,
+      views_a    INTEGER NOT NULL DEFAULT 0,
+      views_b    INTEGER NOT NULL DEFAULT 0,
+      ativo      INTEGER NOT NULL DEFAULT 1,
+      criado_em  TEXT    NOT NULL DEFAULT (datetime('now')),
+      FOREIGN KEY (noticia_id) REFERENCES noticias(id) ON DELETE CASCADE
+    );
+  ]])
+
+  -- Citações de games
+  db_conn:exec([[
+    CREATE TABLE IF NOT EXISTS citacoes (
+      id        INTEGER PRIMARY KEY AUTOINCREMENT,
+      texto     TEXT NOT NULL,
+      personagem TEXT NOT NULL DEFAULT '',
+      jogo      TEXT NOT NULL DEFAULT '',
+      criado_em TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+  ]])
+
   return db_conn
 end
 
@@ -2303,6 +2340,240 @@ function M.tempo_leitura(texto)
   local palavras = 0
   for _ in (texto or ""):gmatch("%S+") do palavras = palavras + 1 end
   return math.max(1, math.ceil(palavras / 200))
+end
+
+
+-- ─── Glossário ────────────────────────────────────────────────────────────────
+
+function M.get_glossario()
+  return query("SELECT * FROM glossario ORDER BY termo ASC")
+end
+
+function M.get_glossario_por_letra(letra)
+  return query(string.format(
+    "SELECT * FROM glossario WHERE termo LIKE %s ORDER BY termo ASC",
+    escape(letra .. "%")
+  ))
+end
+
+function M.get_termo(id)
+  local rows = query("SELECT * FROM glossario WHERE id=" .. tonumber(id))
+  return rows[1]
+end
+
+function M.buscar_glossario(q)
+  local t = escape("%" .. (q or "") .. "%")
+  return query(string.format(
+    "SELECT * FROM glossario WHERE termo LIKE %s OR definicao LIKE %s ORDER BY termo ASC",
+    t, t
+  ))
+end
+
+function M.criar_termo(termo, definicao, categoria)
+  local conn = M.connect()
+  conn:exec(string.format(
+    "INSERT INTO glossario (termo, definicao, categoria) VALUES (%s, %s, %s)",
+    escape(termo), escape(definicao or ""), escape(categoria or "Geral")
+  ))
+  return conn:last_insert_rowid()
+end
+
+function M.editar_termo(id, termo, definicao, categoria)
+  local conn = M.connect()
+  conn:exec(string.format(
+    "UPDATE glossario SET termo=%s, definicao=%s, categoria=%s WHERE id=%d",
+    escape(termo), escape(definicao or ""), escape(categoria or "Geral"),
+    tonumber(id)
+  ))
+end
+
+function M.deletar_termo(id)
+  local conn = M.connect()
+  conn:exec("DELETE FROM glossario WHERE id=" .. tonumber(id))
+end
+
+-- ─── A/B Test ─────────────────────────────────────────────────────────────────
+
+function M.get_ab_testes()
+  return query([[
+    SELECT ab.*, n.titulo AS titulo_a
+    FROM ab_testes ab
+    JOIN noticias n ON n.id = ab.noticia_id
+    ORDER BY ab.criado_em DESC
+  ]])
+end
+
+function M.get_ab_teste(noticia_id)
+  local rows = query(string.format(
+    "SELECT * FROM ab_testes WHERE noticia_id=%d AND ativo=1 LIMIT 1",
+    tonumber(noticia_id)
+  ))
+  return rows[1]
+end
+
+function M.criar_ab_teste(noticia_id, titulo_b)
+  local conn = M.connect()
+  -- Desativa testes anteriores desta notícia
+  conn:exec("UPDATE ab_testes SET ativo=0 WHERE noticia_id=" .. tonumber(noticia_id))
+  conn:exec(string.format(
+    "INSERT INTO ab_testes (noticia_id, titulo_b) VALUES (%d, %s)",
+    tonumber(noticia_id), escape(titulo_b)
+  ))
+  return conn:last_insert_rowid()
+end
+
+function M.registrar_view_ab(teste_id, variante)
+  -- variante: "a" ou "b"
+  local conn = M.connect()
+  local col = variante == "b" and "views_b" or "views_a"
+  conn:exec(string.format(
+    "UPDATE ab_testes SET %s=%s+1 WHERE id=%d",
+    col, col, tonumber(teste_id)
+  ))
+end
+
+function M.deletar_ab_teste(id)
+  local conn = M.connect()
+  conn:exec("DELETE FROM ab_testes WHERE id=" .. tonumber(id))
+end
+
+-- ─── Citações ─────────────────────────────────────────────────────────────────
+
+function M.get_citacoes()
+  return query("SELECT * FROM citacoes ORDER BY criado_em DESC")
+end
+
+function M.get_citacao_aleatoria()
+  local rows = query("SELECT * FROM citacoes ORDER BY RANDOM() LIMIT 1")
+  return rows[1]
+end
+
+function M.criar_citacao(texto, personagem, jogo)
+  local conn = M.connect()
+  conn:exec(string.format(
+    "INSERT INTO citacoes (texto, personagem, jogo) VALUES (%s, %s, %s)",
+    escape(texto), escape(personagem or ""), escape(jogo or "")
+  ))
+  return conn:last_insert_rowid()
+end
+
+function M.deletar_citacao(id)
+  local conn = M.connect()
+  conn:exec("DELETE FROM citacoes WHERE id=" .. tonumber(id))
+end
+
+-- ─── Feed personalizado ───────────────────────────────────────────────────────
+
+-- Retorna notícias recomendadas para um leitor baseado no histórico
+function M.get_feed_personalizado(leitor_id, limite)
+  limite = tonumber(limite) or 10
+  if not leitor_id or leitor_id == "" then
+    -- Sem histórico: retorna as mais vistas recentes
+    return query(string.format([[
+      SELECT * FROM noticias
+      WHERE publicar_em = '' OR publicar_em <= datetime('now')
+      ORDER BY views DESC, criado_em DESC
+      LIMIT %d
+    ]], limite))
+  end
+
+  -- Categorias preferidas do leitor (do histórico de leituras)
+  local cats = query(string.format([[
+    SELECT n.categoria, COUNT(*) AS peso
+    FROM historico_leituras hl
+    JOIN noticias n ON n.id = hl.noticia_id
+    WHERE hl.leitor_id = %s
+    GROUP BY n.categoria
+    ORDER BY peso DESC
+    LIMIT 3
+  ]], escape(leitor_id)))
+
+  -- Tags preferidas
+  local tags = query(string.format([[
+    SELECT t.nome, COUNT(*) AS peso
+    FROM historico_leituras hl
+    JOIN noticia_tags nt ON nt.noticia_id = hl.noticia_id
+    JOIN tags t ON t.id = nt.tag_id
+    WHERE hl.leitor_id = %s
+    GROUP BY t.nome
+    ORDER BY peso DESC
+    LIMIT 5
+  ]], escape(leitor_id)))
+
+  -- IDs já lidos
+  local lidos = query(string.format(
+    "SELECT noticia_id FROM historico_leituras WHERE leitor_id=%s",
+    escape(leitor_id)
+  ))
+  local lidos_ids = {}
+  for _, r in ipairs(lidos) do lidos_ids[r.noticia_id] = true end
+
+  -- Busca candidatas por categoria + tags
+  local candidatas = {}
+  local vistas = {}
+
+  -- Por categoria preferida
+  for _, cat in ipairs(cats) do
+    local rows = query(string.format([[
+      SELECT *, %d AS relevancia FROM noticias
+      WHERE categoria = %s
+        AND (publicar_em = '' OR publicar_em <= datetime('now'))
+      ORDER BY views DESC, criado_em DESC
+      LIMIT 20
+    ]], cat.peso * 3, escape(cat.categoria)))
+    for _, n in ipairs(rows) do
+      if not lidos_ids[n.id] and not vistas[n.id] then
+        vistas[n.id] = true
+        table.insert(candidatas, n)
+      end
+    end
+  end
+
+  -- Por tags preferidas
+  for _, tag in ipairs(tags) do
+    local rows = query(string.format([[
+      SELECT n.*, %d AS relevancia FROM noticias n
+      JOIN noticia_tags nt ON nt.noticia_id = n.id
+      JOIN tags t ON t.id = nt.tag_id
+      WHERE t.nome = %s
+        AND (n.publicar_em = '' OR n.publicar_em <= datetime('now'))
+      ORDER BY n.views DESC LIMIT 10
+    ]], tag.peso * 2, escape(tag.nome)))
+    for _, n in ipairs(rows) do
+      if not lidos_ids[n.id] and not vistas[n.id] then
+        vistas[n.id] = true
+        table.insert(candidatas, n)
+      end
+    end
+  end
+
+  -- Ordena por relevancia desc, preenche com recentes se necessário
+  table.sort(candidatas, function(a, b)
+    return (a.relevancia or 0) > (b.relevancia or 0)
+  end)
+
+  if #candidatas < limite then
+    local extras = query(string.format([[
+      SELECT * FROM noticias
+      WHERE publicar_em = '' OR publicar_em <= datetime('now')
+      ORDER BY criado_em DESC
+      LIMIT %d
+    ]], limite * 2))
+    for _, n in ipairs(extras) do
+      if not lidos_ids[n.id] and not vistas[n.id] then
+        vistas[n.id] = true
+        table.insert(candidatas, n)
+      end
+      if #candidatas >= limite then break end
+    end
+  end
+
+  -- Corta no limite
+  local resultado = {}
+  for i = 1, math.min(limite, #candidatas) do
+    table.insert(resultado, candidatas[i])
+  end
+  return resultado
 end
 
 

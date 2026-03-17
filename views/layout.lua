@@ -1,4 +1,3 @@
--- views/layout.lua
 local Widget = require("lapis.html").Widget
 
 return Widget:extend(function(self)
@@ -47,7 +46,7 @@ return Widget:extend(function(self)
     body(function()
       header({ class = "site-header" }, function()
         div({ class = "container header-inner" }, function()
-          a({ href = "/", class = "site-brand" }, "🎮 Portal Gamer")
+          a({ href = "/", class = "site-brand" }, "Portal Gamer")
           
           nav({ class = "header-nav" }, function()
             a({ href = "/" },         "Início")
@@ -55,12 +54,16 @@ return Widget:extend(function(self)
             a({ href = "/trending" }, "🔥 Trending")
             a({ href = "/ranking" },  "Ranking")
             a({ href = "/sobre" },    "Sobre")
+            a({ href = "/feed" },      "⚡ Feed")
+            a({ href = "/glossario" }, "📖 Glossário")
             a({ href = "/admin" },    "Admin")
           end)
 
           div({ class = "header-actions" }, function()
             div({ class = "header-busca", id = "header-busca" }, function()
               button({ id = "search-toggle", class = "search-toggle-btn", title = "Pesquisar", onclick = "toggleSearch()" }, "🔍")
+              button({ id = "voice-btn", class = "search-toggle-btn voice-btn",
+                       title = "Busca por voz", onclick = "iniciarBuscaVoz()" }, "🎤")
               input({ type = "text", id = "busca-global", class = "busca-global-input",
                       placeholder = "Buscar notícias...", autocomplete = "off" })
               div({ id = "busca-resultados", class = "busca-resultados" })
@@ -114,6 +117,13 @@ return Widget:extend(function(self)
                       required    = true })
               button({ type = "submit", class = "newsletter-btn" }, "Inscrever →")
             end)
+          end)
+
+          -- Widget de citação aleatória
+          div({ id = "citacao-widget", class = "footer-citacao" }, function()
+            div({ class = "citacao-aspas" }, "“")
+            p({ id = "citacao-texto", class = "citacao-texto" }, "Carregando citação...")
+            p({ id = "citacao-fonte", class = "citacao-fonte" })
           end)
 
           div({ class = "footer-inner" }, function()
@@ -201,6 +211,72 @@ return Widget:extend(function(self)
               if (e.key==='Escape') { res.classList.remove('aberto'); input.blur(); }
             });
           })();
+          // ── Busca por Voz ─────────────────────────────────────────────────
+          (function() {
+            var btn = document.getElementById('voice-btn');
+            if (!btn) return;
+            var SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+            if (!SpeechRecognition) {
+              btn.style.display = 'none';
+              return;
+            }
+            var rec = new SpeechRecognition();
+            rec.lang = 'pt-BR';
+            rec.interimResults = false;
+            rec.maxAlternatives = 1;
+            btn.addEventListener('click', function() {
+              btn.classList.add('voice-ouvindo');
+              btn.textContent = '🔴';
+              rec.start();
+            });
+            rec.onresult = function(e) {
+              var termo = e.results[0][0].transcript;
+              btn.classList.remove('voice-ouvindo');
+              btn.textContent = '🎤';
+              // Abre a busca com o termo reconhecido
+              var input = document.getElementById('busca-global');
+              var headerBusca = document.getElementById('header-busca');
+              headerBusca.classList.add('aberto');
+              input.value = termo;
+              input.dispatchEvent(new Event('input'));
+              // Também redireciona para busca avançada se apertar Enter
+              input.focus();
+            };
+            rec.onerror = function() {
+              btn.classList.remove('voice-ouvindo');
+              btn.textContent = '🎤';
+            };
+            rec.onend = function() {
+              btn.classList.remove('voice-ouvindo');
+              if (btn.textContent === '🔴') btn.textContent = '🎤';
+            };
+            window.iniciarBuscaVoz = function() { rec.start(); };
+          })();
+
+          // ── Citação Aleatória ─────────────────────────────────────────────
+          (function() {
+            var widget = document.getElementById('citacao-widget');
+            if (!widget) return;
+            fetch('/api/citacao')
+              .then(function(r) { return r.json(); })
+              .then(function(data) {
+                if (data.status !== 'ok') {
+                  widget.style.display = 'none';
+                  return;
+                }
+                var texto = document.getElementById('citacao-texto');
+                var fonte = document.getElementById('citacao-fonte');
+                if (texto) texto.textContent = data.texto;
+                if (fonte) {
+                  var f = '';
+                  if (data.personagem && data.personagem !== '') f += data.personagem;
+                  if (data.jogo && data.jogo !== '') f += (f ? ' · ' : '') + data.jogo;
+                  fonte.textContent = f ? '— ' + f : '';
+                }
+              })
+              .catch(function() { widget.style.display = 'none'; });
+          })();
+
         ]])
       end)
     end)
