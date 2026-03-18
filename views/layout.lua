@@ -39,6 +39,13 @@ return Widget:extend(function(self)
       link({ rel = "stylesheet", href = "/static/style.css?v=4" })
       link({ rel = "alternate", type = "application/rss+xml",
              title = "Portal Gamer RSS", href = "/rss" })
+      -- PWA
+      link({ rel = "manifest", href = "/manifest.json" })
+      meta({ name = "theme-color", content = "#6366f1" })
+      meta({ name = "mobile-web-app-capable", content = "yes" })
+      meta({ name = "apple-mobile-web-app-capable", content = "yes" })
+      meta({ name = "apple-mobile-web-app-status-bar-style", content = "black-translucent" })
+      meta({ name = "apple-mobile-web-app-title", content = "Portal Gamer" })
       link({ href = "https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap",
              rel  = "stylesheet" })
     end)
@@ -46,53 +53,79 @@ return Widget:extend(function(self)
     body(function()
       header({ class = "site-header" }, function()
         div({ class = "container header-inner" }, function()
-          a({ href = "/", class = "site-brand" }, "Portal Gamer")
-          
-          nav({ class = "header-nav" }, function()
-            a({ href = "/" },         "Início")
-            a({ href = "/noticias" }, "Notícias")
-            a({ href = "/trending" }, "🔥 Trending")
-            a({ href = "/ranking" },  "Ranking")
-            a({ href = "/sobre" },    "Sobre")
-            a({ href = "/feed" },      "⚡ Feed")
-            a({ href = "/glossario" }, "📖 Glossário")
-            a({ href = "/admin" },    "Admin")
-          end)
+          button({ id = "drawer-toggle", class = "drawer-toggle-btn", 
+                   title = "Menu", onclick = "toggleDrawer()" }, "☰")
 
+          a({ href = "/", class = "site-brand" }, function()
+            img({ src = "/static/icon-192.png", class = "brand-logo", alt = "Logo" })
+            span("Portal Gamer")
+          end)
+          
           div({ class = "header-actions" }, function()
-            div({ class = "header-busca", id = "header-busca" }, function()
-              button({ id = "search-toggle", class = "search-toggle-btn", title = "Pesquisar", onclick = "toggleSearch()" }, "🔍")
+            -- Busca sempre visível
+            div({ class = "header-busca visible", id = "header-busca" }, function()
               button({ id = "voice-btn", class = "search-toggle-btn voice-btn",
                        title = "Busca por voz", onclick = "iniciarBuscaVoz()" }, "🎤")
               input({ type = "text", id = "busca-global", class = "busca-global-input",
-                      placeholder = "Buscar notícias...", autocomplete = "off" })
+                      placeholder = "Buscar...", autocomplete = "off" })
               div({ id = "busca-resultados", class = "busca-resultados" })
             end)
-            
-            a({ href = "/perfil", class = "nav-perfil-btn" }, (self.leitor_icon or "👤") .. " " .. (self.leitor_nome or "Perfil"))
-            -- Sino de notificações
-            div({ class = "notif-wrapper", id = "notif-wrapper" }, function()
-              button({ id    = "notif-btn",
-                       class = "search-toggle-btn notif-btn",
-                       title = "Notificações",
-                       onclick = "toggleNotificacoes()" }, function()
-                span("🔔")
-                span({ id = "notif-badge", class = "notif-badge", style = "display:none" }, "0")
-              end)
-              div({ id = "notif-dropdown", class = "notif-dropdown" }, function()
-                div({ class = "notif-header" }, function()
-                  span({ class = "notif-titulo" }, "Notificações")
-                  button({ class = "notif-marcar-btn",
-                           onclick = "marcarTodasLidas()" }, "Marcar como lidas")
-                end)
-                div({ id = "notif-lista", class = "notif-lista" }, function()
-                  p({ class = "notif-vazia" }, "Sem notificações.")
+
+            if self.leitor_nivel_info then
+              local niv = self.leitor_nivel_info
+              div({ class = "header-xp-badge", title = string.format("Nível %d: %s (%d/%d XP)", 
+                    niv.nivel.nivel, niv.nivel.nome, niv.xp, niv.proximo and niv.proximo.xp_min or niv.xp) }, function()
+                span({ class = "xp-ico" }, niv.nivel.ico)
+                span({ class = "xp-num" }, tostring(niv.nivel.nivel))
+                div({ class = "xp-progress-mini" }, function()
+                  div({ class = "xp-bar-mini", style = "width:" .. niv.pct_proximo .. "%" })
                 end)
               end)
+            end
+
+            a({ href = "/notificacoes", class = "header-icon-btn", title = "Notificações" }, function()
+              text("🔔")
+              if self.notificacoes_count and self.notificacoes_count > 0 then
+                span({ id = "notificacoes-badge", class = "header-badge" }, tostring(self.notificacoes_count))
+              end
             end)
             
             button({ id = "tema-toggle", class = "tema-btn",
                      title = "Alternar tema", onclick = "toggleTema()" }, "☀️")
+          end)
+        end)
+      end)
+
+      -- Side Drawer & Overlay
+      div({ id = "drawer-overlay", class = "drawer-overlay", onclick = "toggleDrawer()" })
+      div({ id = "side-drawer", class = "side-drawer" }, function()
+        div({ class = "drawer-header" }, function()
+          span({ class = "drawer-title" }, "Navegação")
+          button({ class = "drawer-close", onclick = "toggleDrawer()" }, "✕")
+        end)
+        
+        div({ class = "drawer-profile" }, function()
+          a({ href = "/perfil", class = "drawer-perfil-card" }, function()
+            span({ class = "drawer-avatar" }, self.leitor_icon or "👤")
+            div({ class = "drawer-user-info" }, function()
+              span({ class = "drawer-username" }, self.leitor_nome or "Visitante")
+              span({ class = "drawer-view-profile" }, "Ver perfil →")
+            end)
+          end)
+        end)
+
+        nav({ class = "drawer-nav" }, function()
+          a({ href = "/" },         "🏠 Início")
+          a({ href = "/noticias" }, "📰 Notícias")
+          a({ href = "/trending" }, "🔥 Trending")
+          a({ href = "/ranking" },  "🏆 Ranking")
+          a({ href = "/sobre" },    "ℹ️ Sobre")
+          a({ href = "/feed" },      "⚡ Feed")
+          a({ href = "/glossario" }, "📖 Glossário")
+          a({ href = "/admin" },    "⚙️ Admin")
+          -- PWA Install Button
+          button({ id = "pwa-install-btn", onclick = "instalarPWA()", style = "margin-top: 1.5rem; display: none;" }, function()
+            span("📲 Instalar App")
           end)
         end)
       end)
@@ -176,17 +209,18 @@ return Widget:extend(function(self)
             if (btn) btn.textContent = novo === 'dark' ? '\u2600\uFE0F' : '\uD83C\uDF19';
           }
 
+          function toggleDrawer() {
+            var drawer = document.getElementById('side-drawer');
+            var overlay = document.getElementById('drawer-overlay');
+            drawer.classList.toggle('aberto');
+            overlay.classList.toggle('aberto');
+            document.body.style.overflow = drawer.classList.contains('aberto') ? 'hidden' : '';
+          }
+
           function toggleSearch() {
-            var headerBusca = document.getElementById('header-busca');
+            // Simplificado pois agora está sempre visível no desktop
             var input = document.getElementById('busca-global');
-            var isAberto = headerBusca.classList.toggle('aberto');
-            if (isAberto) {
-              input.focus();
-            } else {
-              input.value = '';
-              document.getElementById('busca-resultados').innerHTML = '';
-              document.getElementById('busca-resultados').classList.remove('aberto');
-            }
+            input.focus();
           }
 
           // Busca global AJAX
@@ -297,73 +331,24 @@ return Widget:extend(function(self)
               .catch(function() { widget.style.display = 'none'; });
           })();
 
-          // ── Notificações in-app ───────────────────────────────────────────
-          (function() {
-            var POLL_INTERVAL = 30000; // 30s
-            var dropdown = document.getElementById('notif-dropdown');
-            var badge    = document.getElementById('notif-badge');
-            var lista    = document.getElementById('notif-lista');
-
-            function carregarNotifs() {
-              fetch('/api/notificacoes')
-                .then(function(r){ return r.json(); })
-                .then(function(data) {
-                  if (data.status !== 'ok') return;
-                  var naoLidas = data.nao_lidas || 0;
-                  if (badge) {
-                    badge.textContent = naoLidas > 9 ? '9+' : String(naoLidas);
-                    badge.style.display = naoLidas > 0 ? 'flex' : 'none';
-                  }
-                  if (!lista) return;
-                  if (!data.notificacoes || data.notificacoes.length === 0) {
-                    lista.innerHTML = '<p class="notif-vazia">Sem notificações.</p>';
-                    return;
-                  }
-                  var html = '';
-                  data.notificacoes.forEach(function(n) {
-                    var cls = 'notif-item' + (n.lida ? '' : ' notif-nao-lida');
-                    html += '<div class="' + cls + '">';
-                    if (n.link && n.link !== '') {
-                      html += '<a href="' + n.link + '" class="notif-link">';
-                    }
-                    html += '<div class="notif-item-titulo">' + n.titulo + '</div>';
-                    if (n.mensagem) html += '<div class="notif-item-msg">' + n.mensagem + '</div>';
-                    html += '<div class="notif-item-data">' + n.criado_em.substring(0,16) + '</div>';
-                    if (n.link && n.link !== '') html += '</a>';
-                    html += '<button class="notif-del" onclick="deletarNotif(' + n.id + ')">✕</button>';
-                    html += '</div>';
-                  });
-                  lista.innerHTML = html;
-                })
-                .catch(function(){});
-            }
-
-            window.toggleNotificacoes = function() {
-              if (!dropdown) return;
-              var aberto = dropdown.classList.toggle('notif-aberto');
-              if (aberto) carregarNotifs();
-            };
-            window.marcarTodasLidas = function() {
-              fetch('/api/notificacoes/lidas', { method: 'POST' })
-                .then(function(){ carregarNotifs(); });
-            };
-            window.deletarNotif = function(id) {
-              fetch('/api/notificacoes/' + id + '/deletar', { method: 'POST' })
-                .then(function(){ carregarNotifs(); });
-            };
-
-            // Fecha ao clicar fora
-            document.addEventListener('click', function(e) {
-              var w = document.getElementById('notif-wrapper');
-              if (w && !w.contains(e.target) && dropdown) {
-                dropdown.classList.remove('notif-aberto');
-              }
-            });
-
-            // Poll periódico
-            carregarNotifs();
-            setInterval(carregarNotifs, POLL_INTERVAL);
-          })();
+          // ── PWA: Service Worker ───────────────────────────────────────────
+          if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register('/sw.js')
+              .catch(function() {});
+          }
+          // Prompt de instalação
+          var deferredPrompt;
+          window.addEventListener('beforeinstallprompt', function(e) {
+            e.preventDefault();
+            deferredPrompt = e;
+            var btn = document.getElementById('pwa-install-btn');
+            if (btn) btn.style.display = 'flex';
+          });
+          window.instalarPWA = function() {
+            if (!deferredPrompt) return;
+            deferredPrompt.prompt();
+            deferredPrompt.userChoice.then(function() { deferredPrompt = null; });
+          };
 
         ]])
       end)

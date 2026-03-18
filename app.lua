@@ -17,7 +17,7 @@ local function get_leitor_id(self)
   local function get_leitor_nome(self)
     local id = get_leitor_id(self)
     local config = db.get_leitor_config(id)
-    return config.nome or "Perfil"
+    return config.nome or "Visitante"
   end
 
 -- ─── 0. MIDDLEWARE DE PERFORMANCE ─────────────────────────────────────────
@@ -44,10 +44,27 @@ local config = require("lapis.config").get()
 
 local function trim(s) return (s or ""):match("^%s*(.-)%s*$") end
 
--- Global filter: carrega o avatar e nome em todas as páginas para o header
+-- Global filter: carrega o avatar, nome e XP em todas as páginas para o header
 app:before_filter(function(self)
-  self.leitor_icon = get_leitor_avatar(self)
-  self.leitor_nome = get_leitor_nome(self)
+  local lid = get_leitor_id(self)
+  local config = db.get_leitor_config(lid)
+  
+  self.leitor_icon  = config.avatar or '👤'
+  self.leitor_nome  = config.nome   or "Visitante"
+  self.leitor_xp    = tonumber(config.xp) or 0
+  self.leitor_nivel_info = db.calcular_nivel(self.leitor_xp)
+  self.notificacoes_count = db.count_notificacoes_nao_lidas(lid)
+
+  -- Welcome notification for new users
+  if self.notificacoes_count == 0 and not self.session.welcome_notif then
+    local all_notifs = db.get_notificacoes(lid)
+    if #all_notifs == 0 then
+      db.criar_notificacao(lid, "Bem-vindo ao Portal Gamer! 🎮", 
+        "Agora você receberá notificações sobre suas conquistas e novidades aqui.", "/sobre", "info")
+      self.session.welcome_notif = true
+      self.notificacoes_count = 1
+    end
+  end
 end)
 
 -- ─── Home ─────────────────────────────────────────────────────────────────────
@@ -139,6 +156,32 @@ app:post("/perfil/limpar", function(self)
   return { redirect_to = "/perfil" }
 end)
 
+-- ─── Notificações ────────────────────────────────────────────────────────────
+
+app:get("/notificacoes", function(self)
+  local lid = get_leitor_id(self)
+  self.notificacoes     = db.get_notificacoes(lid)
+  self.nao_lidas_count  = db.count_notificacoes_nao_lidas(lid)
+  self.og_titulo        = "Minhas Notificações — Portal Gamer"
+  self.og_url           = "http://localhost:8080/notificacoes"
+  return { render = "notificacoes" }
+end)
+
+app:post("/notificacoes/:id/lida", function(self)
+  db.marcar_lida(self.params.id)
+  return { json = { success = true } }
+end)
+
+app:post("/notificacoes/ler-todas", function(self)
+  db.marcar_todas_lidas(get_leitor_id(self))
+  return { redirect_to = "/notificacoes" }
+end)
+
+app:post("/notificacoes/limpar", function(self)
+  db.limpar_notificacoes(get_leitor_id(self))
+  return { redirect_to = "/notificacoes" }
+end)
+
 -- Muda avatar do leitor
 app:post("/api/perfil/avatar", function(self)
   local lid = get_leitor_id(self)
@@ -149,18 +192,6 @@ app:post("/api/perfil/avatar", function(self)
   end
   return { json = { success = false } }
 end)
-
--- Muda nome do leitor
-app:post("/api/perfil/nome", function(self)
-  local lid = get_leitor_id(self)
-  local nome = self.params.nome
-  if nome and #nome > 0 then
-    if #nome > 30 then nome = nome:sub(1, 30) end
-    db.set_leitor_nome(lid, nome)
-    return { json = { success = true, nome = nome } }
-  end
-  return { json = { success = false } }
-end) -- unchanged
 
 -- Muda nome do leitor
 app:post("/api/perfil/nome", function(self)
@@ -261,6 +292,7 @@ app:get("/noticias/:id", function(self)
  
   -- Registra no histórico de leituras
   db.registrar_leitura(leitor_id, self.params.id)
+  db.adicionar_xp(leitor_id, "leitura")
  
   self.session.views_total = (self.session.views_total or 0) + 1
   local cats = self.session.categorias_vistas or {}
@@ -276,6 +308,12 @@ app:get("/noticias/:id", function(self)
     categorias_visitadas = n_cats,
   })
  
+  for _, c in ipairs(novas_conquistas) do
+    db.adicionar_xp(leitor_id, "conquista")
+    db.criar_notificacao(leitor_id, "🏆 Nova Conquista!", 
+      "Você desbloqueou: " .. c.nome, "/conquistas", "achievement")
+  end
+
   -- Serializa conquistas para JS
   local cjson = {}
   for i, c in ipairs(novas_conquistas) do
@@ -334,6 +372,7 @@ app:post("/noticias/:id/comentar", function(self)
     autor ~= "" and autor or "Anônimo",
     conteudo
   )
+  db.adicionar_xp(get_leitor_id(self), "comentario")
   -- Avisa que está aguardando moderação
   self.session.coment_erro = nil
   self.session.coment_ok   = "Comentário enviado! Ele aparecerá após moderação. ✅"
@@ -903,6 +942,7 @@ app:post("/api/curtir/:id", function(self)
   if tipo == "like" then
     self.session.curtidas_total = (self.session.curtidas_total or 0) + 1
     local leitor_id = get_leitor_id(self)
+    db.adicionar_xp(leitor_id, "curtida")
     db.verificar_conquistas(leitor_id, {
       curtidas_total = self.session.curtidas_total
     })
@@ -1154,8 +1194,6 @@ app:post("/admin/comentarios/:id/aprovar", function(self)
   if not auth.require_login(self) then return end
   db.aprovar_comentario(self.params.id)
   db.log("aprovar_comentario", "comentarios", "ID "..self.params.id, ngx.var.remote_addr or "")
-  -- Notifica o leitor (se houver leitor_id associado à sessão que comentou)
-  local info = db.notificar_comentario_aprovado(self.params.id)
   return { redirect_to = "/admin#comentarios" }
 end)
 
@@ -1439,6 +1477,7 @@ app:post("/api/favorito/:id", function(self)
     return { json = { status = "erro", mensagem = "Notícia não encontrada." } }
   end
   local adicionado = db.toggle_favorito(leitor_id, self.params.id)
+  if adicionado then db.adicionar_xp(leitor_id, "favorito") end
   return { json = {
     status      = "ok",
     favoritado  = adicionado,
@@ -1685,124 +1724,267 @@ end)
 
 
 
--- ─── API: Tags sugeridas por IA ───────────────────────────────────────────────
+-- ─── Chat ao vivo ─────────────────────────────────────────────────────────────
 
-app:post("/api/sugerir-tags", function(self)
-  if not auth.require_login(self) then
-    return { json = { status = "erro", mensagem = "Não autorizado." } }
-  end
-  local titulo   = trim(self.params.titulo   or "")
-  local conteudo = trim(self.params.conteudo or "")
-  local jogo     = trim(self.params.jogo     or "")
-  if titulo == "" and conteudo == "" then
-    return { json = { status = "erro", mensagem = "Título ou conteúdo necessário." } }
-  end
-  -- Prompt para a API da Anthropic
-  local prompt = string.format(
-    "Você é um assistente especializado em games e notícias de jogos.\n\n" ..
-    "Com base nesta notícia, sugira de 3 a 6 tags relevantes em português.\n" ..
-    "Responda APENAS com as tags separadas por vírgula, sem explicações.\n" ..
-    "Exemplo: fps, competitivo, update, ranked\n\n" ..
-    "Título: %s\n" ..
-    "Jogo: %s\n" ..
-    "Conteúdo (trecho): %s",
-    titulo, jogo ~= "" and jogo or "não informado",
-    conteudo:sub(1, 500)
-  )
-  -- Tags existentes para contexto
-  local tags_existentes = db.get_tags()
-  local nomes = {}
-  for _, t in ipairs(tags_existentes) do table.insert(nomes, t.nome) end
-  if #nomes > 0 then
-    prompt = prompt .. "\n\nTags já usadas no portal (prefira reutilizar): "
-          .. table.concat(nomes, ", "):sub(1, 200)
-  end
-  return { json = { status = "ok", prompt = prompt } }
+-- Polling: retorna mensagens novas após um ID
+app:get("/api/chat/:id", function(self)
+  local apos = tonumber(self.params.apos) or 0
+  local msgs = db.get_chat(self.params.id, apos)
+  return { json = { status = "ok", mensagens = msgs, total = #msgs } }
 end)
 
--- ─── API: Notificações ────────────────────────────────────────────────────────
-
-app:get("/api/notificacoes", function(self)
+-- Envia mensagem no chat
+app:post("/api/chat/:id", function(self)
   local leitor_id = get_leitor_id(self)
-  local notifs    = db.get_notificacoes(leitor_id, false)
-  local nao_lidas = db.count_notificacoes_nao_lidas(leitor_id)
-  return { json = { status = "ok", notificacoes = notifs, nao_lidas = nao_lidas } }
+  local config    = db.get_leitor_config(leitor_id)
+  local mensagem  = trim(self.params.mensagem or "")
+  if mensagem == "" then
+    return { json = { status = "erro", mensagem = "Mensagem vazia." } }
+  end
+  if #mensagem > 300 then
+    return { json = { status = "erro", mensagem = "Mensagem muito longa (máx. 300 chars)." } }
+  end
+  local nome   = config.nome   or "Anônimo"
+  local avatar = config.avatar or "👤"
+  local id = db.enviar_chat(self.params.id, leitor_id, nome, avatar, mensagem)
+  -- XP por participação no chat
+  db.adicionar_xp(leitor_id, "comentario")
+  return { json = { status = "ok", id = id } }
 end)
 
-app:post("/api/notificacoes/lidas", function(self)
+-- ─── XP e Níveis ─────────────────────────────────────────────────────────────
+
+-- Ranking público de XP
+app:get("/ranking/xp", function(self)
+  self.ranking     = db.get_ranking_xp(50)
+  self.niveis_def  = db.get_niveis_def()
+  -- Enriquece cada entrada com info de nível
+  for _, r in ipairs(self.ranking) do
+    local info = db.calcular_nivel(r.xp)
+    r.nivel_info = info
+  end
+  self.og_titulo   = "Ranking de Leitores — Portal Gamer"
+  self.og_url      = "http://localhost:8080/ranking/xp"
+  return { render = "ranking_xp" }
+end)
+
+-- API: XP do leitor atual
+app:get("/api/meu-xp", function(self)
   local leitor_id = get_leitor_id(self)
-  db.marcar_notificacoes_lidas(leitor_id)
-  return { json = { status = "ok" } }
+  local config    = db.get_leitor_config(leitor_id)
+  local info      = db.calcular_nivel(config.xp or 0)
+  return { json = {
+    status = "ok",
+    xp     = info.xp,
+    nivel  = info.nivel,
+    proximo = info.proximo,
+    pct    = info.pct_proximo,
+  }}
 end)
 
-app:post("/api/notificacoes/:id/deletar", function(self)
+-- ─── Torneios de e-sports ─────────────────────────────────────────────────────
+
+app:get("/torneios", function(self)
+  self.torneios    = db.get_torneios()
+  local leitor_id  = get_leitor_id(self)
+  -- Mapa de inscrições do leitor
+  self.inscricoes  = {}
+  for _, t in ipairs(self.torneios) do
+    self.inscricoes[t.id] = db.is_inscrito(t.id, leitor_id)
+  end
+  self.og_titulo    = "Torneios de E-Sports — Portal Gamer"
+  self.og_url       = "http://localhost:8080/torneios"
+  return { render = "torneios" }
+end)
+
+app:get("/torneios/:id", function(self)
+  local torneio   = db.get_torneio(self.params.id)
+  if not torneio then return { status = 404, render = "erro" } end
   local leitor_id = get_leitor_id(self)
-  db.deletar_notificacao(self.params.id, leitor_id)
-  return { json = { status = "ok" } }
+  self.torneio      = torneio
+  self.participantes = db.get_participantes_torneio(self.params.id)
+  self.is_inscrito   = db.is_inscrito(self.params.id, leitor_id)
+  self.og_titulo     = torneio.nome
+  self.og_url        = "http://localhost:8080/torneios/" .. self.params.id
+  return { render = "torneio_detalhe" }
 end)
 
--- Cria notificação de teste (dev)
-app:post("/admin/notificacao/teste", function(self)
+app:post("/torneios/:id/inscrever", function(self)
+  local leitor_id = get_leitor_id(self)
+  local nome_time = trim(self.params.nome_time or "")
+  local ok = db.inscrever_torneio(self.params.id, leitor_id, nome_time)
+  if ok then db.adicionar_xp(leitor_id, "conquista") end
+  return { redirect_to = "/torneios/" .. self.params.id }
+end)
+
+-- Admin: CRUD de torneios
+app:get("/admin/torneios", function(self)
   if not auth.require_login(self) then return end
-  local leitor_id = get_leitor_id(self)
-  db.criar_notificacao(leitor_id, "comentario",
-    "Seu comentário foi aprovado! 💬",
-    "Seu comentário na notícia foi aprovado e já está visível.",
-    "/favoritos")
-  return { json = { status = "ok" } }
+  self.torneios = db.get_torneios()
+  return { render = "admin.admin_torneios", layout = "admin.admin_layout" }
 end)
 
--- ─── Ranking histórico ────────────────────────────────────────────────────────
+app:get("/admin/torneios/novo", function(self)
+  if not auth.require_login(self) then return end
+  self.erro = self.session.form_erro; self.session.form_erro = nil
+  return { render = "admin.admin_torneio_form", layout = "admin.admin_layout" }
+end)
 
-app:get("/ranking/historico", function(self)
-  local hoje  = os.date("*t")
-  local ano   = tonumber(self.params.ano) or hoje.year
-  local mes   = tonumber(self.params.mes) or hoje.month
-  if mes < 1  then mes = 12; ano = ano - 1 end
-  if mes > 12 then mes = 1;  ano = ano + 1 end
-  local meses_pt = {
-    "Janeiro","Fevereiro","Março","Abril","Maio","Junho",
-    "Julho","Agosto","Setembro","Outubro","Novembro","Dezembro"
+app:post("/admin/torneios/novo", function(self)
+  if not auth.require_login(self) then return end
+  local nome = trim(self.params.nome or "")
+  if nome == "" then
+    self.session.form_erro = "Nome é obrigatório."
+    return { redirect_to = "/admin/torneios/novo" }
+  end
+  db.criar_torneio(nome, trim(self.params.jogo), trim(self.params.descricao),
+    trim(self.params.premiacao), trim(self.params.data_inicio),
+    trim(self.params.data_fim), trim(self.params.imagem_url),
+    trim(self.params.status or "upcoming"))
+  db.log("criar_torneio", "torneios", nome, ngx.var.remote_addr or "")
+  return { redirect_to = "/admin/torneios" }
+end)
+
+app:get("/admin/torneios/:id/editar", function(self)
+  if not auth.require_login(self) then return end
+  local torneio = db.get_torneio(self.params.id)
+  if not torneio then return { status = 404, render = "erro" } end
+  self.torneio = torneio
+  self.erro = self.session.form_erro; self.session.form_erro = nil
+  return { render = "admin.admin_torneio_editar", layout = "admin.admin_layout" }
+end)
+
+app:post("/admin/torneios/:id/editar", function(self)
+  if not auth.require_login(self) then return end
+  local nome = trim(self.params.nome or "")
+  if nome == "" then
+    self.session.form_erro = "Nome é obrigatório."
+    return { redirect_to = "/admin/torneios/" .. self.params.id .. "/editar" }
+  end
+  db.editar_torneio(self.params.id, nome, trim(self.params.jogo),
+    trim(self.params.descricao), trim(self.params.premiacao),
+    trim(self.params.data_inicio), trim(self.params.data_fim),
+    trim(self.params.imagem_url), trim(self.params.status or "upcoming"))
+  return { redirect_to = "/admin/torneios" }
+end)
+
+app:post("/admin/torneios/:id/deletar", function(self)
+  if not auth.require_login(self) then return end
+  db.deletar_torneio(self.params.id)
+  return { redirect_to = "/admin/torneios" }
+end)
+
+-- ─── SEO Global ──────────────────────────────────────────────────────────────
+
+app:get("/admin/seo-global", function(self)
+  if not auth.require_login(self) then return end
+  local pagina = tonumber(self.params.pagina) or 1
+  local ordem  = trim(self.params.ordem or "score_asc")
+  local result = db.get_seo_global(pagina, 20, ordem)
+  self.noticias     = result.rows
+  self.pagina       = result.pagina
+  self.total_pag    = result.total_paginas
+  self.total        = result.total
+  self.ordem        = ordem
+  return { render = "admin.admin_seo_global", layout = "admin.admin_layout" }
+end)
+
+-- ─── PWA: Service Worker e Manifest ──────────────────────────────────────────
+
+app:get("/manifest.json", function(self)
+  ngx.header["Content-Type"] = "application/manifest+json"
+  return { layout = false, [[{
+  "name": "Portal Gamer",
+  "short_name": "PortalGamer",
+  "description": "Notícias, rankings e análises do mundo dos games.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0f172a",
+  "theme_color": "#6366f1",
+  "orientation": "portrait-primary",
+  "icons": [
+    { "src": "/static/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
+    { "src": "/static/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ],
+  "categories": ["games", "news", "entertainment"],
+  "lang": "pt-BR"
+}]] }
+end)
+
+app:get("/sw.js", function(self)
+  ngx.header["Content-Type"] = "application/javascript"
+  ngx.header["Service-Worker-Allowed"] = "/"
+  return { layout = false, [[
+const CACHE_NAME = 'portal-gamer-v2';
+const OFFLINE_URL = '/offline';
+const STATIC_ASSETS = [
+  '/',
+  '/offline',
+  '/static/style.css?v=4',
+  '/static/icon-192.png',
+  '/static/icon-512.png'
+];
+
+self.addEventListener('install', event => {
+  event.waitUntil(
+    caches.open(CACHE_NAME).then(cache => cache.addAll(STATIC_ASSETS))
+  );
+  self.skipWaiting();
+});
+
+self.addEventListener('activate', event => {
+  event.waitUntil(
+    caches.keys().then(keys => Promise.all(
+      keys.map(key => {
+        if (key !== CACHE_NAME) return caches.delete(key);
+      })
+    ))
+  );
+  self.clients.claim();
+});
+
+self.addEventListener('fetch', event => {
+  if (event.request.method !== 'GET') return;
+
+  const url = new URL(event.request.url);
+
+  // Estratégia Cache-First para arquivos estáticos
+  if (url.pathname.startsWith('/static/')) {
+    event.respondWith(
+      caches.match(event.request).then(cached => {
+        return cached || fetch(event.request).then(response => {
+          const clone = response.clone();
+          caches.open(CACHE_NAME).then(cache => cache.put(event.request, clone));
+          return response;
+        });
+      })
+    );
+    return;
   }
-  self.ano             = ano
-  self.mes             = mes
-  self.mes_nome        = meses_pt[mes]
-  self.top_noticias    = db.get_ranking_historico_noticias(ano, mes, 10)
-  self.top_categorias  = db.get_ranking_historico_categorias(ano, mes)
-  self.meses_disponiveis = db.get_meses_com_dados()
-  self.serie_mensal    = db.get_serie_views_mensal()
-  self.og_titulo       = "Ranking Histórico — " .. meses_pt[mes] .. " " .. ano
-  self.og_url          = "http://localhost:8080/ranking/historico"
-  return { render = "ranking_historico" }
+
+  // Estratégia Network-First para páginas HTML (dinâmicas)
+  event.respondWith(
+    fetch(event.request)
+      .then(response => {
+        if (response.ok) {
+          const clone = response.clone();
+          caches.open(CACHE_NAME).then(cache => cache.put(event.request, clone));
+        }
+        return response;
+      })
+      .catch(() => {
+        return caches.match(event.request).then(cached => {
+          return cached || caches.match(OFFLINE_URL);
+        });
+      })
+  );
+});
+]] }
 end)
 
--- ─── Admin: Saúde do banco ────────────────────────────────────────────────────
-
-app:get("/admin/saude-db", function(self)
-  if not auth.require_login(self) then return end
-  self.saude = db.get_saude_db()
-  return { render = "admin.admin_saude_db", layout = "admin.admin_layout" }
-end)
-
-app:post("/admin/saude-db/vacuum", function(self)
-  if not auth.require_login(self) then return end
-  db.executar_vacuum()
-  db.log("vacuum", "database", "VACUUM executado", ngx.var.remote_addr or "")
-  return { json = { status = "ok", mensagem = "VACUUM executado com sucesso." } }
-end)
-
-app:post("/admin/saude-db/analyze", function(self)
-  if not auth.require_login(self) then return end
-  db.executar_analyze()
-  db.log("analyze", "database", "ANALYZE executado", ngx.var.remote_addr or "")
-  return { json = { status = "ok", mensagem = "ANALYZE executado com sucesso." } }
-end)
-
--- ─── Widget jogos online (API) ────────────────────────────────────────────────
-
-app:get("/api/jogos-online", function(self)
-  local jogos = db.get_jogos_online_agora()
-  return { json = { status = "ok", jogos = jogos, hora = os.date("%H:%M") } }
+app:get("/offline", function(self)
+  self.og_titulo = "Sem conexão — Portal Gamer"
+  return { render = "offline" }
 end)
 
 

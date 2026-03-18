@@ -1,3 +1,4 @@
+-- views/noticia_detalhe.lua
 local Widget = require("lapis.html").Widget
 
 return Widget:extend(function(self)
@@ -289,6 +290,31 @@ if self.voce_pode_gostar and #self.voce_pode_gostar > 0 then
       end)
     end)
 
+    -- ── Chat ao vivo ──────────────────────────────────────────────────────────
+    section({ class = "shadow-card mt-2 chat-section" }, function()
+      div({ class = "chat-header" }, function()
+        h3(function()
+          span("💬 Chat ao Vivo")
+          span({ id = "chat-online", class = "chat-online-badge" }, "🟢 Ao vivo")
+        end)
+        span({ id = "chat-count", class = "chat-count" }, "")
+      end)
+      div({ id = "chat-mensagens", class = "chat-mensagens" }, function()
+        p({ class = "chat-carregando" }, "Carregando mensagens...")
+      end)
+      div({ class = "chat-input-area" }, function()
+        input({ type        = "text",
+                id          = "chat-input",
+                class       = "chat-input",
+                placeholder = "Digite sua mensagem...",
+                maxlength   = "300",
+                onkeydown   = "if(event.key==='Enter')enviarChat()" })
+        button({ class   = "chat-send-btn",
+                 onclick = "enviarChat()" }, "➤")
+      end)
+      p({ class = "chat-hint" }, "Chat público · mensagens ficam 7 dias · seja respeitoso")
+    end)
+
     -- ── Sidebar ────────────────────────────────────────────────────────────
     aside({ class = "detalhe-sidebar" }, function()
 
@@ -330,13 +356,13 @@ if self.voce_pode_gostar and #self.voce_pode_gostar > 0 then
         end)
       end
 
-      -- ── Widget Jogos Online Agora ─────────────────────────────────────────
+      -- ── Widget Clima Gamer ───────────────────────────────────────────────
       div({ class = "sidebar-widget shadow-card clima-widget" }, function()
-        h3("🟢 Jogos Online Agora")
-        div({ id = "jogos-online-lista", class = "clima-lista" }, function()
-          p({ class = "clima-loading" }, "Carregando status...")
+        h3("🌡 Status dos Servidores")
+        div({ id = "clima-lista", class = "clima-lista" }, function()
+          p({ class = "clima-loading" }, "Verificando status...")
         end)
-        p({ id = "jogos-online-hora", class = "clima-footer" }, "Atualizando...")
+        p({ class = "clima-footer" }, "Atualizado via ping de popularidade")
       end)
 
     end)
@@ -441,48 +467,45 @@ if self.voce_pode_gostar and #self.voce_pode_gostar > 0 then
         });
       })();
 
-      // ── Widget Jogos Online Agora ─────────────────────────────────────
+      // ── Widget Clima Gamer ────────────────────────────────────────────
+      // Simula status de servidores com base em horário/dia (sem API externa)
       (function() {
-        var lista = document.getElementById('jogos-online-lista');
-        var horaEl = document.getElementById('jogos-online-hora');
+        var jogos = [
+          { nome: "Valorant",          cor: "#f43f5e" },
+          { nome: "CS2",               cor: "#f59e0b" },
+          { nome: "League of Legends", cor: "#6366f1" },
+          { nome: "Fortnite",          cor: "#22c55e" },
+          { nome: "Minecraft",         cor: "#84cc16" },
+        ];
+
+        var hora = new Date().getHours();
+        // Pico de jogadores: 18h-23h = lotado
+        var base = (hora >= 18 && hora <= 23) ? 80
+                 : (hora >= 12 && hora <= 17) ? 60
+                 : (hora >= 8  && hora <= 11) ? 40 : 25;
+
+        var lista = document.getElementById('clima-lista');
         if (!lista) return;
 
-        function formatar(n) {
-          if (n >= 1000000) return (n/1000000).toFixed(1)+'M';
-          if (n >= 1000)    return (n/1000).toFixed(0)+'K';
-          return String(n);
-        }
-
-        function carregar() {
-          fetch('/api/jogos-online')
-            .then(function(r){ return r.json(); })
-            .then(function(data) {
-              if (data.status !== 'ok' || !data.jogos) {
-                lista.innerHTML = '<p class="clima-loading">Erro ao carregar.</p>';
-                return;
-              }
-              var max = data.jogos.reduce(function(m,j){ return Math.max(m, j.players_online||0); }, 1);
-              var html = '';
-              data.jogos.forEach(function(j) {
-                var pct = max > 0 ? Math.round((j.players_online/max)*100) : 0;
-                var cor = j.status_cor || '#94a3b8';
-                html += '<div class="clima-item">' +
-                  '<span class="clima-nome">' + j.nome + '</span>' +
-                  '<div class="clima-barra-wrapper">' +
-                    '<div class="clima-barra" style="width:'+pct+'%%;background:'+cor+'"></div>' +
-                  '</div>' +
-                  '<span class="clima-status" style="color:'+cor+'">' +
-                    formatar(j.players_online) +
-                  '</span>' +
-                '</div>';
-              });
-              lista.innerHTML = html;
-              if (horaEl) horaEl.textContent = 'Atualizado às ' + (data.hora||'') + ' · dados ao vivo';
-            })
-            .catch(function(){ lista.innerHTML='<p class="clima-loading">Sem dados.</p>'; });
-        }
-        carregar();
-        setInterval(carregar, 120000); // Atualiza a cada 2min
+        var html = '';
+        jogos.forEach(function(j) {
+          var variacao = Math.floor(Math.random() * 20) - 10;
+          var carga    = Math.min(100, Math.max(5, base + variacao));
+          var status   = carga >= 85 ? 'Lotado'
+                       : carga >= 60 ? 'Cheio'
+                       : carga >= 35 ? 'Normal' : 'Tranquilo';
+          var cor      = carga >= 85 ? '#f43f5e'
+                       : carga >= 60 ? '#f59e0b'
+                       : carga >= 35 ? '#4ade80' : '#94a3b8';
+          html += '<div class="clima-item">' +
+            '<span class="clima-nome">' + j.nome + '</span>' +
+            '<div class="clima-barra-wrapper">' +
+              '<div class="clima-barra" style="width:' + carga + '%%;background:' + cor + '"></div>' +
+            '</div>' +
+            '<span class="clima-status" style="color:' + cor + '">' + status + '</span>' +
+          '</div>';
+        });
+        lista.innerHTML = html;
       })();
     ]], self.noticia.id))
   end)

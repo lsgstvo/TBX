@@ -374,17 +374,65 @@ function M.connect()
   ]])
 
 
-  -- Notificações in-app do leitor
+  -- Migração: adiciona colunas de XP/nível na tabela leitores
+  pcall(function() db_conn:exec("ALTER TABLE leitores ADD COLUMN xp INTEGER NOT NULL DEFAULT 0") end)
+  pcall(function() db_conn:exec("ALTER TABLE leitores ADD COLUMN nivel INTEGER NOT NULL DEFAULT 1") end)
+  pcall(function() db_conn:exec("ALTER TABLE leitores ADD COLUMN nome TEXT") end)
+
+  -- Chat ao vivo por notícia (polling)
+  db_conn:exec([[
+    CREATE TABLE IF NOT EXISTS chat_mensagens (
+      id         INTEGER PRIMARY KEY AUTOINCREMENT,
+      noticia_id INTEGER NOT NULL,
+      leitor_id  TEXT    NOT NULL,
+      nome       TEXT    NOT NULL DEFAULT 'Anônimo',
+      avatar     TEXT    NOT NULL DEFAULT '👤',
+      mensagem   TEXT    NOT NULL,
+      criado_em  TEXT    NOT NULL DEFAULT (datetime('now')),
+      FOREIGN KEY (noticia_id) REFERENCES noticias(id) ON DELETE CASCADE
+    );
+  ]])
+
+  -- Torneios de e-sports
+  db_conn:exec([[
+    CREATE TABLE IF NOT EXISTS torneios (
+      id           INTEGER PRIMARY KEY AUTOINCREMENT,
+      nome         TEXT    NOT NULL,
+      jogo         TEXT    NOT NULL DEFAULT '',
+      descricao    TEXT    NOT NULL DEFAULT '',
+      premiacao    TEXT    NOT NULL DEFAULT '',
+      data_inicio  TEXT    NOT NULL DEFAULT '',
+      data_fim     TEXT    NOT NULL DEFAULT '',
+      imagem_url   TEXT    NOT NULL DEFAULT '',
+      status       TEXT    NOT NULL DEFAULT 'upcoming',
+      criado_em    TEXT    NOT NULL DEFAULT (datetime('now'))
+    );
+  ]])
+
+  -- Participantes dos torneios
+  db_conn:exec([[
+    CREATE TABLE IF NOT EXISTS torneio_participantes (
+      id          INTEGER PRIMARY KEY AUTOINCREMENT,
+      torneio_id  INTEGER NOT NULL,
+      leitor_id   TEXT    NOT NULL,
+      nome_time   TEXT    NOT NULL DEFAULT '',
+      inscrito_em TEXT    NOT NULL DEFAULT (datetime('now')),
+      UNIQUE(torneio_id, leitor_id),
+      FOREIGN KEY (torneio_id) REFERENCES torneios(id) ON DELETE CASCADE
+    );
+  ]])
+
+  -- Notificações do leitor
   db_conn:exec([[
     CREATE TABLE IF NOT EXISTS notificacoes (
       id         INTEGER PRIMARY KEY AUTOINCREMENT,
       leitor_id  TEXT    NOT NULL,
-      tipo       TEXT    NOT NULL DEFAULT 'info',
       titulo     TEXT    NOT NULL,
-      mensagem   TEXT    NOT NULL DEFAULT '',
+      mensagem   TEXT    NOT NULL,
       link       TEXT    NOT NULL DEFAULT '',
+      tipo       TEXT    NOT NULL DEFAULT 'info',
       lida       INTEGER NOT NULL DEFAULT 0,
-      criado_em  TEXT    NOT NULL DEFAULT (datetime('now'))
+       criado_em  TEXT    NOT NULL DEFAULT (datetime('now'))
     );
   ]])
 
@@ -395,7 +443,7 @@ function M.close()
   if db_conn then db_conn:close(); db_conn = nil end
 end
 
--- ─── Helpers ─────────────────────────────────────────────────────────────────
+-- ─── Notificações ────────────────────────────────────────────────────────────
 
 local function query(sql)
   local conn = M.connect()
@@ -408,6 +456,49 @@ local function escape(val)
   if val == nil then return "NULL" end
   if type(val) == "number" then return tostring(val) end
   return "'" .. tostring(val):gsub("'", "''") .. "'"
+end
+
+function M.criar_notificacao(leitor_id, titulo, mensagem, link, tipo)
+  if not leitor_id or leitor_id == "" then return end
+  local conn = M.connect()
+  conn:exec(string.format(
+    "INSERT INTO notificacoes (leitor_id, titulo, mensagem, link, tipo) VALUES (%s, %s, %s, %s, %s)",
+    escape(leitor_id), escape(titulo), escape(mensagem), escape(link or ""), escape(tipo or "info")
+  ))
+end
+
+function M.get_notificacoes(leitor_id)
+  if not leitor_id or leitor_id == "" then return {} end
+  return query(string.format([[
+    SELECT * FROM notificacoes 
+    WHERE leitor_id = %s 
+    ORDER BY lida ASC, criado_em DESC 
+    LIMIT 30
+  ]], escape(leitor_id)))
+end
+
+function M.marcar_lida(id)
+  local conn = M.connect()
+  conn:exec("UPDATE notificacoes SET lida = 1 WHERE id = " .. tonumber(id))
+end
+
+function M.marcar_todas_lidas(leitor_id)
+  local conn = M.connect()
+  conn:exec(string.format("UPDATE notificacoes SET lida = 1 WHERE leitor_id = %s", escape(leitor_id)))
+end
+
+function M.count_notificacoes_nao_lidas(leitor_id)
+  if not leitor_id or leitor_id == "" then return 0 end
+  local r = query(string.format(
+    "SELECT COUNT(*) AS n FROM notificacoes WHERE leitor_id = %s AND lida = 0", 
+    escape(leitor_id)
+  ))
+  return r[1] and r[1].n or 0
+end
+
+function M.limpar_notificacoes(leitor_id)
+  local conn = M.connect()
+  conn:exec(string.format("DELETE FROM notificacoes WHERE leitor_id = %s", escape(leitor_id)))
 end
 
 -- ─── Categorias ──────────────────────────────────────────────────────────────
@@ -2689,235 +2780,254 @@ function M.get_calendario_publicadas(ano, mes)
 end
 
 
--- ─── Notificações in-app ──────────────────────────────────────────────────────
+-- ─── Chat ao vivo ─────────────────────────────────────────────────────────────
 
-function M.criar_notificacao(leitor_id, tipo, titulo, mensagem, link)
-  if not leitor_id or leitor_id == "" then return end
+-- Retorna mensagens de chat de uma notícia (após um ID para polling incremental)
+function M.get_chat(noticia_id, apos_id)
+  noticia_id = tonumber(noticia_id)
+  apos_id    = tonumber(apos_id) or 0
+  return query(string.format([[
+    SELECT * FROM chat_mensagens
+    WHERE noticia_id=%d AND id > %d
+    ORDER BY criado_em ASC
+    LIMIT 50
+  ]], noticia_id, apos_id))
+end
+
+-- Envia mensagem no chat
+function M.enviar_chat(noticia_id, leitor_id, nome, avatar, mensagem)
+  if not mensagem or mensagem:match("^%s*$") then return nil end
+  mensagem = mensagem:sub(1, 300)
   local conn = M.connect()
   conn:exec(string.format(
-    "INSERT INTO notificacoes (leitor_id, tipo, titulo, mensagem, link) VALUES (%s,%s,%s,%s,%s)",
-    escape(leitor_id), escape(tipo or "info"),
-    escape(titulo), escape(mensagem or ""), escape(link or "")
+    "INSERT INTO chat_mensagens (noticia_id, leitor_id, nome, avatar, mensagem) VALUES (%d,%s,%s,%s,%s)",
+    tonumber(noticia_id), escape(leitor_id or ""),
+    escape(nome or "Anônimo"), escape(avatar or "👤"), escape(mensagem)
   ))
+  return conn:last_insert_rowid()
 end
 
-function M.get_notificacoes(leitor_id, apenas_nao_lidas)
-  if not leitor_id or leitor_id == "" then return {} end
-  local where = apenas_nao_lidas and " AND lida=0" or ""
-  return query(string.format([[
-    SELECT * FROM notificacoes
-    WHERE leitor_id=%s%s
-    ORDER BY criado_em DESC LIMIT 20
-  ]], escape(leitor_id), where))
-end
-
-function M.count_notificacoes_nao_lidas(leitor_id)
-  if not leitor_id or leitor_id == "" then return 0 end
+-- Total de mensagens ativas (para badge)
+function M.count_chat(noticia_id)
   local r = query(string.format(
-    "SELECT COUNT(*) AS n FROM notificacoes WHERE leitor_id=%s AND lida=0",
-    escape(leitor_id)
+    "SELECT COUNT(*) AS n FROM chat_mensagens WHERE noticia_id=%d",
+    tonumber(noticia_id)
   ))
   return r[1] and r[1].n or 0
 end
 
-function M.marcar_notificacoes_lidas(leitor_id)
-  if not leitor_id or leitor_id == "" then return end
+-- Limpa mensagens antigas (manutenção)
+function M.limpar_chat_antigo(dias)
   local conn = M.connect()
   conn:exec(string.format(
-    "UPDATE notificacoes SET lida=1 WHERE leitor_id=%s",
-    escape(leitor_id)
+    "DELETE FROM chat_mensagens WHERE criado_em < datetime('now','-%d days')",
+    tonumber(dias) or 7
   ))
 end
 
-function M.deletar_notificacao(id, leitor_id)
-  local conn = M.connect()
-  conn:exec(string.format(
-    "DELETE FROM notificacoes WHERE id=%d AND leitor_id=%s",
-    tonumber(id), escape(leitor_id)
-  ))
-end
+-- ─── Sistema de XP e Níveis ───────────────────────────────────────────────────
 
--- Notifica leitor quando comentário é aprovado
-function M.notificar_comentario_aprovado(comentario_id)
-  -- Busca o comentário e a notícia
-  local rows = query(string.format([[
-    SELECT c.id, c.autor, c.noticia_id, n.titulo AS noticia_titulo
-    FROM comentarios c
-    JOIN noticias n ON n.id = c.noticia_id
-    WHERE c.id = %d
-  ]], tonumber(comentario_id)))
-  if #rows == 0 then return end
-  local c = rows[1]
-  -- Notifica todos os leitores que comentaram na mesma notícia
-  local outros = query(string.format([[
-    SELECT DISTINCT autor FROM comentarios
-    WHERE noticia_id=%d AND aprovado=1 AND id != %d
-  ]], tonumber(c.noticia_id), tonumber(comentario_id)))
-  -- (Simplificado: cria notificação genérica para a sessão)
-  -- Em produção: usar email ou leitor_id armazenado no comentário
-  return c
-end
+-- Tabela de níveis: XP mínimo para cada nível
+local NIVEIS = {
+  { nivel=1,  nome="Novato",       xp_min=0,    ico="🌱" },
+  { nivel=2,  nome="Leitor",       xp_min=50,   ico="📰" },
+  { nivel=3,  nome="Fã",           xp_min=150,  ico="⭐" },
+  { nivel=4,  nome="Entusiasta",   xp_min=350,  ico="🔥" },
+  { nivel=5,  nome="Especialista", xp_min=700,  ico="🎮" },
+  { nivel=6,  nome="Veterano",     xp_min=1200, ico="🏆" },
+  { nivel=7,  nome="Lenda",        xp_min=2000, ico="👑" },
+}
 
--- ─── Rankings históricos ──────────────────────────────────────────────────────
+-- XP por ação
+local XP_ACOES = {
+  leitura    = 5,
+  comentario = 20,
+  curtida    = 10,
+  favorito   = 8,
+  conquista  = 30,
+  login_dia  = 15,
+}
 
--- Top notícias por views em um mês específico
-function M.get_ranking_historico_noticias(ano, mes, limite)
-  local inicio = string.format("%04d-%02d-01", ano, mes)
-  local fim    = string.format("%04d-%02d-31 23:59:59", ano, mes)
-  return query(string.format([[
-    SELECT n.id, n.titulo, n.categoria, n.jogo, n.imagem_url,
-           SUM(v.total) AS views_mes
-    FROM views_diarias v
-    JOIN noticias n ON n.id = v.noticia_id
-    WHERE v.data BETWEEN %s AND %s
-    GROUP BY n.id
-    ORDER BY views_mes DESC
-    LIMIT %d
-  ]], escape(inicio), escape(fim), tonumber(limite) or 10))
-end
+function M.get_niveis_def() return NIVEIS end
+function M.get_xp_acoes()   return XP_ACOES end
 
--- Top categorias por mês
-function M.get_ranking_historico_categorias(ano, mes)
-  local inicio = string.format("%04d-%02d-01", ano, mes)
-  local fim    = string.format("%04d-%02d-31 23:59:59", ano, mes)
-  return query(string.format([[
-    SELECT n.categoria, SUM(v.total) AS views_mes, COUNT(DISTINCT n.id) AS noticias
-    FROM views_diarias v
-    JOIN noticias n ON n.id = v.noticia_id
-    WHERE v.data BETWEEN %s AND %s
-    GROUP BY n.categoria
-    ORDER BY views_mes DESC
-  ]], escape(inicio), escape(fim)))
-end
-
--- Meses disponíveis (que têm dados de views)
-function M.get_meses_com_dados()
-  return query([[
-    SELECT DISTINCT strftime('%Y', data) AS ano,
-                    strftime('%m', data) AS mes,
-                    strftime('%Y-%m', data) AS ano_mes
-    FROM views_diarias
-    ORDER BY ano_mes DESC
-    LIMIT 24
-  ]])
-end
-
--- Total de views por mês (série histórica)
-function M.get_serie_views_mensal()
-  return query([[
-    SELECT strftime('%Y-%m', data) AS mes, SUM(total) AS total
-    FROM views_diarias
-    GROUP BY mes
-    ORDER BY mes ASC
-  ]])
-end
-
--- ─── Saúde do banco de dados ──────────────────────────────────────────────────
-
-function M.get_saude_db()
-  local conn = M.connect()
-
-  -- Contagem de registros por tabela
-  local tabelas = {
-    "noticias","jogos","comentarios","tags","noticia_tags",
-    "autores","avaliacoes","views_diarias","curtidas","conquistas",
-    "historico_leituras","enquetes","enquete_votos","perf_log",
-    "favoritos","galeria","glossario","ab_testes","citacoes","notificacoes"
+-- Calcula o nível a partir do XP
+function M.calcular_nivel(xp)
+  xp = tonumber(xp) or 0
+  local nivel_atual = NIVEIS[1]
+  for _, n in ipairs(NIVEIS) do
+    if xp >= n.xp_min then nivel_atual = n
+    else break end
+  end
+  -- Próximo nível
+  local prox = nil
+  for _, n in ipairs(NIVEIS) do
+    if n.xp_min > xp then prox = n; break end
+  end
+  local pct_proximo = 0
+  if prox then
+    local xp_range = prox.xp_min - nivel_atual.xp_min
+    local xp_atual = xp - nivel_atual.xp_min
+    pct_proximo = xp_range > 0 and math.floor((xp_atual / xp_range) * 100) or 100
+  else
+    pct_proximo = 100  -- nível máximo
+  end
+  return {
+    nivel        = nivel_atual,
+    proximo      = prox,
+    xp           = xp,
+    pct_proximo  = pct_proximo,
   }
-  local contagens = {}
-  for _, t in ipairs(tabelas) do
-    local ok, rows = pcall(query, "SELECT COUNT(*) AS n FROM " .. t)
-    if ok and rows[1] then
-      contagens[t] = rows[1].n
-    else
-      contagens[t] = 0
-    end
+end
+
+-- Adiciona XP a um leitor
+function M.adicionar_xp(leitor_id, acao)
+  if not leitor_id or leitor_id == "" then return end
+  local ganho = XP_ACOES[acao] or 0
+  if ganho == 0 then return end
+  local conn = M.connect()
+  -- Garante que o leitor existe
+  conn:exec(string.format(
+    "INSERT OR IGNORE INTO leitores (leitor_id) VALUES (%s)", escape(leitor_id)
+  ))
+  conn:exec(string.format(
+    "UPDATE leitores SET xp = COALESCE(xp,0) + %d WHERE leitor_id = %s",
+    ganho, escape(leitor_id)
+  ))
+  -- Atualiza nível
+  local config = M.get_leitor_config(leitor_id)
+  local xp_novo = (tonumber(config.xp) or 0) + ganho
+  local info    = M.calcular_nivel(xp_novo)
+  conn:exec(string.format(
+    "UPDATE leitores SET nivel = %d WHERE leitor_id = %s",
+    info.nivel.nivel, escape(leitor_id)
+  ))
+  return { xp = xp_novo, nivel = info.nivel, ganho = ganho }
+end
+
+-- Ranking de XP (top leitores)
+function M.get_ranking_xp(limite)
+  return query(string.format([[
+    SELECT leitor_id, avatar, nome,
+           COALESCE(xp, 0) AS xp,
+           COALESCE(nivel, 1) AS nivel
+    FROM leitores
+    WHERE COALESCE(xp, 0) > 0
+    ORDER BY xp DESC
+    LIMIT %d
+  ]], tonumber(limite) or 20))
+end
+
+-- ─── Torneios de e-sports ─────────────────────────────────────────────────────
+
+function M.get_torneios()
+  return query([[
+    SELECT t.*,
+      (SELECT COUNT(*) FROM torneio_participantes WHERE torneio_id=t.id) AS total_inscritos
+    FROM torneios t
+    ORDER BY
+      CASE t.status WHEN 'live' THEN 0 WHEN 'upcoming' THEN 1 ELSE 2 END,
+      t.data_inicio ASC
+  ]])
+end
+
+function M.get_torneio(id)
+  local rows = query(string.format(
+    "SELECT * FROM torneios WHERE id=%d", tonumber(id)
+  ))
+  return rows[1]
+end
+
+function M.criar_torneio(nome, jogo, descricao, premiacao, data_inicio, data_fim, imagem_url, status)
+  local conn = M.connect()
+  conn:exec(string.format(
+    "INSERT INTO torneios (nome,jogo,descricao,premiacao,data_inicio,data_fim,imagem_url,status) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)",
+    escape(nome), escape(jogo or ""), escape(descricao or ""),
+    escape(premiacao or ""), escape(data_inicio or ""), escape(data_fim or ""),
+    escape(imagem_url or ""), escape(status or "upcoming")
+  ))
+  return conn:last_insert_rowid()
+end
+
+function M.editar_torneio(id, nome, jogo, descricao, premiacao, data_inicio, data_fim, imagem_url, status)
+  local conn = M.connect()
+  conn:exec(string.format(
+    "UPDATE torneios SET nome=%s,jogo=%s,descricao=%s,premiacao=%s,data_inicio=%s,data_fim=%s,imagem_url=%s,status=%s WHERE id=%d",
+    escape(nome), escape(jogo or ""), escape(descricao or ""),
+    escape(premiacao or ""), escape(data_inicio or ""), escape(data_fim or ""),
+    escape(imagem_url or ""), escape(status or "upcoming"), tonumber(id)
+  ))
+end
+
+function M.deletar_torneio(id)
+  local conn = M.connect()
+  conn:exec("DELETE FROM torneios WHERE id=" .. tonumber(id))
+end
+
+function M.inscrever_torneio(torneio_id, leitor_id, nome_time)
+  local conn = M.connect()
+  conn:exec(string.format(
+    "INSERT OR IGNORE INTO torneio_participantes (torneio_id, leitor_id, nome_time) VALUES (%d,%s,%s)",
+    tonumber(torneio_id), escape(leitor_id), escape(nome_time or "")
+  ))
+  return conn:changes() > 0
+end
+
+function M.is_inscrito(torneio_id, leitor_id)
+  local rows = query(string.format(
+    "SELECT id FROM torneio_participantes WHERE torneio_id=%d AND leitor_id=%s LIMIT 1",
+    tonumber(torneio_id), escape(leitor_id)
+  ))
+  return #rows > 0
+end
+
+function M.get_participantes_torneio(torneio_id)
+  return query(string.format([[
+    SELECT tp.*, l.avatar
+    FROM torneio_participantes tp
+    LEFT JOIN leitores l ON l.leitor_id = tp.leitor_id
+    WHERE tp.torneio_id = %d
+    ORDER BY tp.inscrito_em DESC
+  ]], tonumber(torneio_id)))
+end
+
+-- ─── SEO Global ──────────────────────────────────────────────────────────────
+
+-- Retorna todas as notícias com seus scores SEO (paginado)
+function M.get_seo_global(pagina, por_pagina, ordem)
+  pagina     = tonumber(pagina)     or 1
+  por_pagina = tonumber(por_pagina) or 20
+  local offset  = (pagina - 1) * por_pagina
+  local total   = query("SELECT COUNT(*) AS n FROM noticias")[1].n
+  local noticias = query(string.format([[
+    SELECT n.*, a.nome AS autor_nome
+    FROM noticias n
+    LEFT JOIN autores a ON a.id = n.autor_id
+    ORDER BY n.criado_em DESC
+    LIMIT %d OFFSET %d
+  ]], por_pagina, offset))
+
+  -- Analisa SEO de cada uma
+  for _, n in ipairs(noticias) do
+    local seo = M.analisar_seo(n)
+    n.seo_score = seo.score
+    n.seo_grade = seo.grade
+    n.seo_avisos = #seo.avisos
   end
 
-  -- Tamanho do arquivo do banco
-  local f = io.open("portal_gamer.db", "rb")
-  local tamanho_bytes = 0
-  if f then
-    tamanho_bytes = f:seek("end") or 0
-    f:close()
+  -- Ordena por score se solicitado
+  if ordem == "score_asc" then
+    table.sort(noticias, function(a,b) return (a.seo_score or 0) < (b.seo_score or 0) end)
+  elseif ordem == "score_desc" then
+    table.sort(noticias, function(a,b) return (a.seo_score or 0) > (b.seo_score or 0) end)
   end
-
-  -- Page count e page size via PRAGMA
-  local page_count = query("PRAGMA page_count")[1]
-  local page_size  = query("PRAGMA page_size")[1]
-  local freelist   = query("PRAGMA freelist_count")[1]
 
   return {
-    contagens     = contagens,
-    tabelas       = tabelas,
-    tamanho_bytes = tamanho_bytes,
-    tamanho_kb    = math.floor(tamanho_bytes / 1024),
-    page_count    = page_count and page_count.page_count or 0,
-    page_size     = page_size  and page_size.page_size  or 4096,
-    freelist      = freelist   and freelist.freelist_count or 0,
+    rows          = noticias,
+    total         = total,
+    pagina        = pagina,
+    total_paginas = math.ceil(total / por_pagina),
   }
-end
-
-function M.executar_vacuum()
-  local conn = M.connect()
-  conn:exec("VACUUM")
-  return true
-end
-
-function M.executar_analyze()
-  local conn = M.connect()
-  conn:exec("ANALYZE")
-  return true
-end
-
--- ─── Widget jogos online (simulado) ──────────────────────────────────────────
-
--- Retorna dados de "players online" baseados em views recentes
-function M.get_jogos_online_agora()
-  local hora = tonumber(os.date("%H"))
-  -- Pico 18h-23h, médio 12h-17h, baixo demais
-  local fator = hora >= 18 and 1.0
-             or hora >= 12 and 0.6
-             or hora >= 8  and 0.3 or 0.1
-
-  -- Usa número de avaliacoes e views como base para simular
-  local jogos = query([[
-    SELECT j.id, j.nome, j.genero, j.imagem_url,
-           COALESCE(a.total_avals, 0) AS avals,
-           COALESCE(v.views_hoje, 0)  AS views_hoje
-    FROM jogos j
-    LEFT JOIN (
-      SELECT jogo_id, COUNT(*) AS total_avals FROM avaliacoes GROUP BY jogo_id
-    ) a ON a.jogo_id = j.id
-    LEFT JOIN (
-      SELECT n.jogo, SUM(vd.total) AS views_hoje
-      FROM views_diarias vd
-      JOIN noticias n ON n.id = vd.noticia_id
-      WHERE vd.data = date('now')
-      GROUP BY n.jogo
-    ) v ON v.jogo = j.nome
-    ORDER BY j.posicao ASC
-  ]])
-
-  -- Simula players online com base em métricas reais + fator horário
-  for _, j in ipairs(jogos) do
-    local base = 1000 + (j.avals or 0) * 500 + (j.views_hoje or 0) * 100
-    -- Adiciona variação pseudoaleatória estável (baseada no nome do jogo)
-    local seed = 0
-    for c in j.nome:gmatch(".") do seed = seed + string.byte(c) end
-    local variacao = (seed % 30) - 15  -- -15% a +15%
-    j.players_online = math.floor(base * fator * (1 + variacao / 100))
-    -- Status do servidor
-    j.status = j.players_online > 50000 and "Lotado"
-            or j.players_online > 20000 and "Cheio"
-            or j.players_online > 5000  and "Normal"
-            or "Tranquilo"
-    j.status_cor = j.players_online > 50000 and "#f43f5e"
-                or j.players_online > 20000 and "#f59e0b"
-                or j.players_online > 5000  and "#4ade80"
-                or "#94a3b8"
-  end
-  return jogos
 end
 
 
