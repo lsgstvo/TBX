@@ -101,6 +101,17 @@ return Widget:extend(function(self)
             input({ type = "hidden", id = "imagem_url", name = "imagem_url" })
           end)
 
+          -- Créditos / Fonte
+          div({ class = "form-group" }, function()
+            label({ ["for"] = "credito_url" }, "🔗 Créditos (fonte da notícia)")
+            input({ type        = "url",
+                    id          = "credito_url",
+                    name        = "credito_url",
+                    placeholder = "https://site-de-origem.com/noticia" })
+            p({ class = "field-hint" },
+              "Link do site original. Será exibido ao leitor como fonte.")
+          end)
+
           -- Agendamento
           div({ class = "form-group" }, function()
             label({ ["for"] = "publicar_em" }, "⏰ Agendar publicação (opcional)")
@@ -183,13 +194,11 @@ return Widget:extend(function(self)
           return;
         }
 
-        // Indica carregamento
         if (icoEl) icoEl.textContent = '⏳';
         if (txtEl) txtEl.textContent = '...';
         box.innerHTML = '<span class="ia-carregando">✨ A IA está pensando...</span>';
         box.classList.add('ia-ativo');
 
-        // Passo 1: busca o prompt montado pelo servidor
         fetch('/api/sugerir-tags', {
           method: 'POST',
           headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -205,7 +214,6 @@ return Widget:extend(function(self)
             if (txtEl) txtEl.textContent = 'IA';
             return;
           }
-          // Passo 2: chama a API da Anthropic diretamente
           return fetch('https://api.anthropic.com/v1/messages', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -234,7 +242,6 @@ return Widget:extend(function(self)
             return;
           }
 
-          // Renderiza botões de sugestão
           var html = '<span class="sugestao-label">✨ Sugestões da IA:</span>';
           sugestoes.forEach(function(tag) {
             html += '<button type="button" class="tag-sugestao tag-ia-sug" '

@@ -1,4 +1,3 @@
--- views/api_docs.lua
 local Widget = require("lapis.html").Widget
 
 return Widget:extend(function(self)
@@ -19,7 +18,7 @@ return Widget:extend(function(self)
   end
 
   div({ class = "shadow-card doc-hero" }, function()
-    h2("📖 API Pública — Portal Gamer")
+    h2("📖 API Pública — TBX")
     p("API REST simples, somente leitura, sem autenticação. Todas as respostas são em JSON (UTF-8).")
     div({ class = "doc-base" }, function()
       span("Base URL: ")

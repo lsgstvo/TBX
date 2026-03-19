@@ -1,11 +1,10 @@
--- views/sobre.lua
 local Widget = require("lapis.html").Widget
 
 return Widget:extend(function(self)
   -- Sobre o portal
   div({ class = "shadow-card sobre-hero" }, function()
-    h2("🎮 Sobre o Portal Gamer")
-    p("O Portal Gamer é um site dedicado às últimas notícias, rankings e atualizações do mundo dos games. Nosso objetivo é manter a comunidade gamer informada com conteúdo de qualidade sobre os jogos mais populares.")
+    h2("🎮 Sobre o TBX")
+    p("O TBX é um site dedicado às últimas notícias, rankings e atualizações do mundo dos games. Nosso objetivo é manter a comunidade gamer informada com conteúdo de qualidade sobre os jogos mais populares.")
   end)
 
   -- Cards de info

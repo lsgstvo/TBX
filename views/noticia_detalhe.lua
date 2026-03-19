@@ -153,6 +153,18 @@ return Widget:extend(function(self)
           end)
         end
 
+        -- Créditos / Fonte da notícia
+        if self.noticia.credito_url and self.noticia.credito_url ~= "" then
+          div({ class = "noticia-credito" }, function()
+            span({ class = "credito-label" }, "📎 Fonte:")
+            a({ href   = self.noticia.credito_url,
+                target = "_blank",
+                rel    = "nofollow noopener",
+                class  = "credito-link" },
+              self.noticia.credito_url:gsub("https?://", ""):gsub("/.*", ""))
+          end)
+        end
+
         -- ── Curtidas / Descurtidas ─────────────────────────────────────────
         div({ class = "curtidas-bar" }, function()
           -- Like

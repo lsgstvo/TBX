@@ -1,4 +1,3 @@
--- views/admin/admin_layout.lua
 local Widget = require("lapis.html").Widget
 
 return Widget:extend(function(self)
@@ -6,7 +5,7 @@ return Widget:extend(function(self)
     head(function()
       meta({ charset = "UTF-8" })
       meta({ name = "viewport", content = "width=device-width, initial-scale=1.0" })
-      title("Admin — Portal Gamer")
+      title("Admin — TBX")
       script(function()
         raw([[
           (function() {

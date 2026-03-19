@@ -1,12 +1,10 @@
--- Tela de login do painel administrativo
-
 local Widget = require("lapis.html").Widget
 
 return Widget:extend(function(self)
   div({ class = "login-wrapper" }, function()
     div({ class = "login-card" }, function()
       div({ class = "login-header" }, function()
-        h1("⚙️ Portal Gamer")
+        h1("⚙️ TBX")
         p("Painel Administrativo")
       end)
 

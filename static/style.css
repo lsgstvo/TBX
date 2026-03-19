@@ -1,4 +1,4 @@
-/* style.css — Portal Gamer */
+/* style.css — TBX */
 
 /* ── Variáveis: tema escuro (padrão) ─────────────────────────────────────── */
 :root,
@@ -7310,22 +7310,61 @@ a.torneio-nome:hover {
 }
 
 /* Helper classes for Advanced Reading Mode */
-#noticia-corpo.font-sans   { font-family: var(--font-sans); }
-#noticia-corpo.font-serif  { font-family: "Georgia", "Times New Roman", serif; font-size: 1.05em; }
-#noticia-corpo.font-mono   { font-family: var(--font-mono); font-size: 0.9em; }
+#noticia-corpo.font-sans {
+  font-family: var(--font-sans);
+}
 
-#noticia-corpo.size-sm     { font-size: 0.85em; }
-#noticia-corpo.size-md     { font-size: 1em; }
-#noticia-corpo.size-lg     { font-size: 1.25em; }
-#noticia-corpo.size-xl     { font-size: 1.5em; }
+#noticia-corpo.font-serif {
+  font-family: "Georgia", "Times New Roman", serif;
+  font-size: 1.05em;
+}
 
-#noticia-corpo.space-compact { line-height: 1.4; }
-#noticia-corpo.space-normal  { line-height: 1.7; }
-#noticia-corpo.space-relaxed { line-height: 2.1; }
+#noticia-corpo.font-mono {
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+}
 
-#noticia-corpo.width-narrow   { max-width: 600px; margin: 0 auto; }
-#noticia-corpo.width-standard { max-width: 100%; }
-#noticia-corpo.width-wide     { max-width: 1100px; margin: 0 auto; }
+#noticia-corpo.size-sm {
+  font-size: 0.85em;
+}
+
+#noticia-corpo.size-md {
+  font-size: 1em;
+}
+
+#noticia-corpo.size-lg {
+  font-size: 1.25em;
+}
+
+#noticia-corpo.size-xl {
+  font-size: 1.5em;
+}
+
+#noticia-corpo.space-compact {
+  line-height: 1.4;
+}
+
+#noticia-corpo.space-normal {
+  line-height: 1.7;
+}
+
+#noticia-corpo.space-relaxed {
+  line-height: 2.1;
+}
+
+#noticia-corpo.width-narrow {
+  max-width: 600px;
+  margin: 0 auto;
+}
+
+#noticia-corpo.width-standard {
+  max-width: 100%;
+}
+
+#noticia-corpo.width-wide {
+  max-width: 1100px;
+  margin: 0 auto;
+}
 
 .leitura-opt-ativo {
   background: var(--primary-color) !important;
@@ -7347,4 +7386,37 @@ a.torneio-nome:hover {
     left: .5rem;
     width: auto;
   }
+}
+
+/* ── Créditos / Fonte da notícia ─────────────────────────────────────────── */
+.noticia-credito {
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+  padding: .5rem .8rem;
+  border-radius: 8px;
+  margin: .6rem 0;
+  background: rgba(99, 102, 241, .05);
+  border: 1px solid rgba(99, 102, 241, .12);
+  font-size: .82rem;
+}
+
+.credito-label {
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+.credito-link {
+  color: var(--primary-color);
+  text-decoration: none;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  transition: opacity .15s;
+}
+
+.credito-link:hover {
+  opacity: .75;
+  text-decoration: underline;
 }

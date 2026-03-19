@@ -6,9 +6,9 @@ return Widget:extend(function(self)
       meta({ charset = "UTF-8" })
       meta({ name = "viewport", content = "width=device-width, initial-scale=1.0" })
       local titulo_pag = self.og_titulo
-        and (self.og_titulo .. " — Portal Gamer") or "Portal Gamer"
+        and (self.og_titulo .. " — TBX") or "TBX"
       title(titulo_pag)
-      local og_titulo = self.og_titulo     or "Portal Gamer"
+      local og_titulo = self.og_titulo     or "TBX"
       local og_desc   = self.og_descricao
         or "Fique por dentro das últimas notícias, rankings e atualizações do mundo dos games."
       local og_url    = self.og_url    or "http://localhost:8080"
@@ -17,7 +17,7 @@ return Widget:extend(function(self)
       meta({ name = "description", content = og_desc })
       meta({ name = "robots",      content = "index, follow" })
       meta({ property = "og:type",        content = og_tipo })
-      meta({ property = "og:site_name",   content = "Portal Gamer" })
+      meta({ property = "og:site_name",   content = "TBX" })
       meta({ property = "og:title",       content = og_titulo })
       meta({ property = "og:description", content = og_desc })
       meta({ property = "og:url",         content = og_url })
@@ -42,13 +42,13 @@ return Widget:extend(function(self)
       end)
       link({ rel = "stylesheet", href = "/static/style.css?v=5" })
       link({ rel = "alternate", type = "application/rss+xml",
-             title = "Portal Gamer RSS", href = "/rss" })
+             title = "TBX RSS", href = "/rss" })
       link({ rel = "manifest", href = "/manifest.json" })
       meta({ name = "theme-color", content = "#6366f1" })
       meta({ name = "mobile-web-app-capable", content = "yes" })
       meta({ name = "apple-mobile-web-app-capable", content = "yes" })
       meta({ name = "apple-mobile-web-app-status-bar-style", content = "black-translucent" })
-      meta({ name = "apple-mobile-web-app-title", content = "Portal Gamer" })
+      meta({ name = "apple-mobile-web-app-title", content = "TBX" })
       link({ href = "https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap",
              rel  = "stylesheet" })
     end)
@@ -63,7 +63,7 @@ return Widget:extend(function(self)
 
           a({ href = "/", class = "site-brand" }, function()
             img({ src = "/static/icon-192.png", class = "brand-logo", alt = "Logo" })
-            span("Portal Gamer")
+            span("TBX")
           end)
 
           div({ class = "header-actions" }, function()
@@ -195,7 +195,7 @@ return Widget:extend(function(self)
             div({ class = "newsletter-texto" }, function()
               span({ class = "newsletter-titulo" }, "📧 Fique por dentro!")
               span({ class = "newsletter-sub" },
-                "Receba as novidades do Portal Gamer no seu e-mail.")
+                "Receba as novidades do TBX no seu e-mail.")
             end)
             form({ method = "POST", action = "/newsletter/cadastrar",
                    class = "newsletter-form" }, function()
@@ -213,7 +213,7 @@ return Widget:extend(function(self)
           end)
 
           div({ class = "footer-inner" }, function()
-            p("© 2026 Portal Gamer — Desenvolvido em Lua com Lapis")
+            p("© 2026 TBX — Desenvolvido em Lua com Lapis")
             div({ class = "footer-links" }, function()
               a({ href = "/sobre" },    "Sobre")
               a({ href = "/trending" }, "Trending")

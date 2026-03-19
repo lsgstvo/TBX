@@ -1,24 +1,22 @@
--- views/admin/admin_noticia_editar.lua
 local Widget = require("lapis.html").Widget
 
 return Widget:extend(function(self)
+  local n = self.noticia or {}
   div({ class = "admin-section shadow-card" }, function()
     h2("✏️ Editar Notícia")
     if self.erro then div({ class = "alert alert-erro" }, self.erro) end
 
     div({ class = "form-preview-layout" }, function()
-
-      -- Formulário
       div({ class = "form-col" }, function()
-        form({ method  = "POST",
-               action  = "/admin/noticias/" .. self.noticia.id .. "/editar",
+        form({ method = "POST",
+               action  = "/admin/noticias/" .. (n.id or "") .. "/editar",
                class   = "admin-form",
                enctype = "multipart/form-data" }, function()
 
           div({ class = "form-group" }, function()
             label({ ["for"] = "titulo" }, "Título *")
             input({ type = "text", id = "titulo", name = "titulo",
-                    value = self.noticia.titulo, required = true,
+                    value = n.titulo or "", required = true,
                     oninput = "atualizarPreview()" })
           end)
 
@@ -29,9 +27,9 @@ return Widget:extend(function(self)
                                   onchange = "atualizarPreview()" }, function()
                 option({ value = "" }, "— Selecione —")
                 for _, j in ipairs(self.jogos or {}) do
-                  local a = { value = j.nome }
-                  if j.nome == self.noticia.jogo then a.selected = true end
-                  option(a, j.nome)
+                  local attrs = { value = j.nome }
+                  if n.jogo == j.nome then attrs.selected = true end
+                  option(attrs, j.nome)
                 end
               end)
             end)
@@ -40,9 +38,20 @@ return Widget:extend(function(self)
               element("select", { id = "categoria", name = "categoria",
                                   onchange = "atualizarPreview()" }, function()
                 for _, c in ipairs(self.categorias or {}) do
-                  local a = { value = c.nome }
-                  if c.nome == self.noticia.categoria then a.selected = true end
-                  option(a, c.nome)
+                  local attrs = { value = c.nome }
+                  if n.categoria == c.nome then attrs.selected = true end
+                  option(attrs, c.nome)
+                end
+              end)
+            end)
+            div({ class = "form-group" }, function()
+              label({ ["for"] = "autor_id" }, "Autor")
+              element("select", { id = "autor_id", name = "autor_id" }, function()
+                option({ value = "" }, "— Selecione —")
+                for _, a in ipairs(self.autores or {}) do
+                  local attrs = { value = tostring(a.id) }
+                  if n.autor_id == a.id then attrs.selected = true end
+                  option(attrs, a.nome)
                 end
               end)
             end)
@@ -52,64 +61,79 @@ return Widget:extend(function(self)
             label({ ["for"] = "conteudo" }, "Conteúdo *")
             textarea({ id = "conteudo", name = "conteudo", rows = "9",
                        required = true, oninput = "atualizarPreview()" },
-                     self.noticia.conteudo)
+                     n.conteudo or "")
           end)
 
-          -- Campo de tags com sugestões
+          -- Tags
           div({ class = "form-group" }, function()
             label({ ["for"] = "tags" }, "Tags")
-            input({ type        = "text",
-                    id          = "tags",
-                    name        = "tags",
-                    value       = self.tags_str or "",
-                    placeholder = "ex: fps, competitivo, update",
-                    autocomplete = "off" })
-            -- Sugestões de tags populares
+            div({ class = "tags-ia-wrapper" }, function()
+              input({ type = "text", id = "tags", name = "tags",
+                      value = self.tags_str or "",
+                      placeholder = "ex: fps, competitivo, update",
+                      autocomplete = "off" })
+              button({ type    = "button", id = "btn-sugerir-tags",
+                       class   = "btn-ia", onclick = "sugerirTagsIA()",
+                       title   = "Sugerir tags com IA" }, function()
+                span({ id = "ia-ico" }, "✨")
+                span({ id = "ia-txt" }, "IA")
+              end)
+            end)
             if self.tags_pop and #self.tags_pop > 0 then
               div({ class = "tags-sugestoes" }, function()
                 span({ class = "sugestao-label" }, "Populares: ")
                 for _, t in ipairs(self.tags_pop) do
-                  button({ type    = "button",
-                           class   = "tag-sugestao",
+                  button({ type    = "button", class = "tag-sugestao",
                            onclick = "adicionarTag('" .. t.nome .. "')" },
                          "#" .. t.nome)
                 end
               end)
             end
+            div({ id = "ia-sugestoes", class = "ia-sugestoes" })
           end)
 
-          -- Upload de imagem
+          -- Imagem de capa
           div({ class = "form-group" }, function()
             label({}, "Imagem de Capa")
-            -- Mostra imagem atual se houver
-            if self.noticia.imagem_url and self.noticia.imagem_url ~= "" then
-              div({ class = "img-preview" }, function()
-                p({ class = "preview-label" }, "Atual:")
-                img({ src   = self.noticia.imagem_url,
-                      alt   = self.noticia.titulo,
-                      class = "preview-img",
-                      id    = "img-atual" })
-              end)
-            end
             div({ class = "upload-wrapper" }, function()
-              input({ type     = "file",
-                      id       = "upload-arquivo",
-                      accept   = "image/jpeg,image/png,image/gif,image/webp",
-                      class    = "upload-input",
-                      onchange = "fazerUpload(this)" })
+              input({ type = "file", id = "upload-arquivo",
+                      accept = "image/jpeg,image/png,image/gif,image/webp",
+                      class  = "upload-input", onchange = "fazerUpload(this)" })
               div({ id = "upload-status",  class = "upload-status" })
-              div({ id = "upload-preview", class = "upload-img-preview" })
+              div({ id = "upload-preview", class = "upload-img-preview" }, function()
+                if n.imagem_url and n.imagem_url ~= "" then
+                  img({ src = n.imagem_url, class = "upload-thumb",
+                        alt = n.titulo or "" })
+                end
+              end)
             end)
-            input({ type  = "hidden",
-                    id    = "imagem_url",
-                    name  = "imagem_url",
-                    value = self.noticia.imagem_url or "" })
+            input({ type = "hidden", id = "imagem_url", name = "imagem_url",
+                    value = n.imagem_url or "" })
+          end)
+
+          -- Créditos
+          div({ class = "form-group" }, function()
+            label({ ["for"] = "credito_url" }, "🔗 Créditos (fonte da notícia)")
+            input({ type        = "url",
+                    id          = "credito_url",
+                    name        = "credito_url",
+                    value       = n.credito_url or "",
+                    placeholder = "https://site-de-origem.com/noticia" })
+            p({ class = "field-hint" }, "Link do site original. Será exibido ao leitor como fonte.")
+          end)
+
+          -- Agendamento
+          div({ class = "form-group" }, function()
+            label({ ["for"] = "publicar_em" }, "⏰ Agendar publicação")
+            input({ type  = "datetime-local", id = "publicar_em",
+                    name  = "publicar_em", value = n.publicar_em or "" })
           end)
 
           div({ class = "form-check" }, function()
-            local attrs = { type = "checkbox", id = "destaque", name = "destaque",
-                            value = "1", onchange = "atualizarPreview()" }
-            if self.noticia.destaque == 1 then attrs.checked = true end
+            local attrs = { type = "checkbox", id = "destaque",
+                            name = "destaque", value = "1",
+                            onchange = "atualizarPreview()" }
+            if n.destaque == 1 then attrs.checked = true end
             input(attrs)
             label({ ["for"] = "destaque" }, "⭐ Destaque na home")
           end)
@@ -121,82 +145,96 @@ return Widget:extend(function(self)
         end)
       end)
 
-      -- Preview + Histórico
+      -- Preview
       div({ class = "preview-col" }, function()
         div({ class = "preview-header" }, function()
           span({ class = "preview-label" }, "👁 Preview")
-          span({ class = "preview-hint" }, "Atualiza em tempo real")
         end)
-        div({ id = "preview-box", class = "preview-box" })
-
-        -- Histórico de edições
-        if self.historico and #self.historico > 0 then
-          div({ class = "historico-wrapper mt-2" }, function()
-            h4("🕓 Histórico de Edições (" .. #self.historico .. ")")
-            div({ class = "historico-lista" }, function()
-              for i, h in ipairs(self.historico) do
-                div({ class = "historico-item" .. (i == 1 and " historico-recente" or "") }, function()
-                  div({ class = "historico-meta" }, function()
-                    span({ class = "historico-data" }, h.editado_em:sub(1, 16))
-                  end)
-                  p({ class = "historico-titulo" }, h.titulo_ant)
-                  p({ class = "historico-preview" }, h.conteudo_ant:sub(1, 80) .. "...")
-                end)
-              end
-            end)
-          end)
-        end
+        div({ id = "preview-box", class = "preview-box" }, function()
+          div({ class = "preview-empty" }, "Atualize um campo para ver o preview →")
+        end)
       end)
     end)
   end)
 
   script(function()
     raw([[
-      // ── Upload ────────────────────────────────────────────────────────
       function fazerUpload(input) {
-        var arquivo = input.files[0];
-        if (!arquivo) return;
+        var arquivo = input.files[0]; if (!arquivo) return;
         var status  = document.getElementById('upload-status');
         var preview = document.getElementById('upload-preview');
         var hidden  = document.getElementById('imagem_url');
         status.textContent = '⏳ Enviando...';
-        status.className   = 'upload-status upload-enviando';
-        preview.innerHTML  = '';
-        var formData = new FormData();
-        formData.append('imagem', arquivo);
-        fetch('/admin/upload/imagem', { method: 'POST', body: formData })
-          .then(function(r) { return r.json(); })
-          .then(function(data) {
-            if (data.status === 'ok') {
-              hidden.value       = data.url;
-              status.textContent = '✅ Upload concluído!';
-              status.className   = 'upload-status upload-ok';
-              preview.innerHTML  = '<img src="' + data.url + '" class="upload-thumb"/>';
-              var atual = document.getElementById('img-atual');
-              if (atual) atual.src = data.url;
+        var fd = new FormData(); fd.append('imagem', arquivo);
+        fetch('/admin/upload/imagem', { method:'POST', body:fd })
+          .then(function(r){ return r.json(); })
+          .then(function(data){
+            if (data.status==='ok') {
+              hidden.value = data.url;
+              status.textContent = '✅ Concluído!';
+              preview.innerHTML  = '<img src="'+data.url+'" class="upload-thumb"/>';
+              atualizarPreview();
             } else {
-              status.textContent = '❌ ' + (data.mensagem || 'Erro.');
-              status.className   = 'upload-status upload-erro';
+              status.textContent = '❌ '+(data.mensagem||'Erro.');
             }
-          })
-          .catch(function() {
-            status.textContent = '❌ Erro de conexão.';
-            status.className   = 'upload-status upload-erro';
-          });
+          }).catch(function(){ status.textContent='❌ Erro de conexão.'; });
       }
 
-      // ── Tags ──────────────────────────────────────────────────────────
       function adicionarTag(nome) {
         var input = document.getElementById('tags');
-        var atual = input.value.trim();
-        var lista = atual ? atual.split(',').map(function(t){return t.trim();}) : [];
-        if (lista.indexOf(nome) === -1) {
-          lista.push(nome);
-          input.value = lista.join(', ');
-        }
+        var lista = input.value.trim()
+          ? input.value.split(',').map(function(t){return t.trim();}) : [];
+        if (lista.indexOf(nome) === -1) { lista.push(nome); input.value = lista.join(', '); }
       }
 
-      // ── Preview ───────────────────────────────────────────────────────
+      function sugerirTagsIA() {
+        var titulo   = document.getElementById('titulo').value.trim();
+        var conteudo = document.getElementById('conteudo').value.trim();
+        var jogo     = document.getElementById('jogo').value;
+        var icoEl    = document.getElementById('ia-ico');
+        var txtEl    = document.getElementById('ia-txt');
+        var box      = document.getElementById('ia-sugestoes');
+        if (!titulo && !conteudo) {
+          box.innerHTML = '<span class="ia-erro">Preencha o título ou conteúdo primeiro.</span>';
+          box.classList.add('ia-ativo'); return;
+        }
+        if (icoEl) icoEl.textContent = '⏳';
+        if (txtEl) txtEl.textContent = '...';
+        box.innerHTML = '<span class="ia-carregando">✨ A IA está pensando...</span>';
+        box.classList.add('ia-ativo');
+        fetch('/api/sugerir-tags', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: 'titulo='+encodeURIComponent(titulo)+'&conteudo='+encodeURIComponent(conteudo.substring(0,600))+'&jogo='+encodeURIComponent(jogo)
+        })
+        .then(function(r){ return r.json(); })
+        .then(function(data) {
+          if (data.status !== 'ok') { box.innerHTML='<span class="ia-erro">Erro.</span>'; return data; }
+          return fetch('https://api.anthropic.com/v1/messages', {
+            method:'POST', headers:{'Content-Type':'application/json'},
+            body: JSON.stringify({ model:'claude-sonnet-4-20250514', max_tokens:100,
+              messages:[{role:'user',content:data.prompt}] })
+          });
+        })
+        .then(function(r){ return r && r.json(); })
+        .then(function(resp) {
+          if (icoEl) icoEl.textContent='✨'; if (txtEl) txtEl.textContent='IA';
+          if (!resp||!resp.content||!resp.content[0]) { box.innerHTML='<span class="ia-erro">Sem resposta.</span>'; return; }
+          var sugestoes = resp.content[0].text.split(',')
+            .map(function(t){ return t.trim().toLowerCase().replace(/[^a-z0-9À-ɏ\s-]/g,''); })
+            .filter(function(t){ return t.length>0&&t.length<30; });
+          var html = '<span class="sugestao-label">✨ Sugestões:</span>';
+          sugestoes.forEach(function(tag) {
+            html += '<button type="button" class="tag-sugestao tag-ia-sug" onclick="adicionarTag(''+tag.replace(/'/g,"\'")+'')">#'+tag+'</button>';
+          });
+          html += '<button type="button" class="ia-add-todas" onclick="adicionarTodasIA(['+sugestoes.map(function(t){return"'"+t.replace(/'/g,"\'")+"'";}).join(',')+'])">Adicionar todas</button>';
+          box.innerHTML = html;
+        })
+        .catch(function() { if(icoEl)icoEl.textContent='✨'; if(txtEl)txtEl.textContent='IA'; box.innerHTML='<span class="ia-erro">Erro de conexão.</span>'; });
+      }
+
+      function adicionarTodasIA(tags) { tags.forEach(function(t){ adicionarTag(t); }); }
+
       function atualizarPreview() {
         var titulo   = document.getElementById('titulo').value;
         var conteudo = document.getElementById('conteudo').value;
@@ -205,21 +243,22 @@ return Widget:extend(function(self)
         var dest     = document.getElementById('destaque').checked;
         var imgUrl   = document.getElementById('imagem_url').value;
         var box      = document.getElementById('preview-box');
-
+        if (!titulo && !conteudo) {
+          box.innerHTML = '<div class="preview-empty">Atualize um campo para ver o preview →</div>';
+          return;
+        }
         var hoje = new Date().toISOString().split('T')[0];
         var html = '<article class="noticia-detalhe preview-article">';
         html += '<div class="noticia-header">';
-        if (cat)  html += '<span class="tag">' + cat + '</span>';
-        if (jogo) html += '<span class="tag tag-jogo">' + jogo + '</span>';
+        if (cat)  html += '<span class="tag">'+cat+'</span>';
+        if (jogo) html += '<span class="tag tag-jogo">'+jogo+'</span>';
         if (dest) html += '<span class="badge-destaque">⭐ Destaque</span>';
-        html += '<span class="data-noticia">' + hoje + '</span>';
-        html += '</div>';
-        if (imgUrl) html += '<img src="' + imgUrl +
-          '" style="width:100%;border-radius:8px;margin:.8rem 0;max-height:180px;object-fit:cover"/>';
-        if (titulo) html += '<h2>' + titulo + '</h2>';
-        html += '<div class="noticia-corpo"><p>' +
-                (conteudo||'').replace(/\n/g,'</p><p>') +
-                '</p></div></article>';
+        html += '<span class="data-noticia">'+hoje+'</span></div>';
+        if (imgUrl) html += '<img src="'+imgUrl+'" style="width:100%;border-radius:8px;margin:.8rem 0;max-height:180px;object-fit:cover"/>';
+        if (titulo) html += '<h2>'+titulo+'</h2>';
+        html += '<div class="noticia-corpo"><p>'+(conteudo||'').replace(/
+/g,'</p><p>')+'</p></div>';
+        html += '</article>';
         box.innerHTML = html;
       }
 

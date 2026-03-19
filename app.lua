@@ -59,7 +59,7 @@ app:before_filter(function(self)
   if self.notificacoes_count == 0 and not self.session.welcome_notif then
     local all_notifs = db.get_notificacoes(lid)
     if #all_notifs == 0 then
-      db.criar_notificacao(lid, "Bem-vindo ao Portal Gamer! 🎮", 
+      db.criar_notificacao(lid, "Bem-vindo ao TBX! 🎮", 
         "Agora você receberá notificações sobre suas conquistas e novidades aqui.", "/sobre", "info")
       self.session.welcome_notif = true
       self.notificacoes_count = 1
@@ -99,16 +99,16 @@ end)
 -- ─── Sobre ────────────────────────────────────────────────────────────────────
 
 app:get("/sobre", function(self)
-  self.og_titulo    = "Sobre o Portal Gamer"
-  self.og_descricao = "Conheça o Portal Gamer, feito com Lua, Lapis e SQLite."
+  self.og_titulo    = "Sobre o TBX"
+  self.og_descricao = "Conheça o TBX, feito com Lua, Lapis e SQLite."
   self.og_url       = "http://localhost:8080/sobre"
   return { render = "sobre" }
 end)
 
 app:get("/about", function(self)
   self.dados        = db.get_dados_about()
-  self.og_titulo    = "Sobre o Portal Gamer"
-  self.og_descricao = "A história e os números do Portal Gamer."
+  self.og_titulo    = "Sobre o TBX"
+  self.og_descricao = "A história e os números do TBX."
   self.og_url       = "http://localhost:8080/about"
   return { render = "about" }
 end)
@@ -122,7 +122,7 @@ app:get("/conquistas", function(self)
   for _, c in ipairs(self.minhas_conquistas) do
     self.desbloqueadas[c.tipo] = c.desbloqueada_em
   end
-  self.og_titulo    = "Minhas Conquistas — Portal Gamer"
+  self.og_titulo    = "Minhas Conquistas — TBX"
   self.og_url       = "http://localhost:8080/conquistas"
   return { render = "conquistas" }
 end)
@@ -145,7 +145,7 @@ app:get("/perfil", function(self)
   self.leitor_nome        = config.nome or "Perfil"
   self.leitor_icon        = get_leitor_avatar(self) -- Para o header
   self.favoritos          = db.get_favoritos(lid)
-  self.og_titulo          = "Meu Perfil — Portal Gamer"
+  self.og_titulo          = "Meu Perfil — TBX"
   self.og_url             = "http://localhost:8080/perfil"
   return { render = "perfil_leitor" }
 end)
@@ -162,7 +162,7 @@ app:get("/notificacoes", function(self)
   local lid = get_leitor_id(self)
   self.notificacoes     = db.get_notificacoes(lid)
   self.nao_lidas_count  = db.count_notificacoes_nao_lidas(lid)
-  self.og_titulo        = "Minhas Notificações — Portal Gamer"
+  self.og_titulo        = "Minhas Notificações — TBX"
   self.og_url           = "http://localhost:8080/notificacoes"
   return { render = "notificacoes" }
 end)
@@ -213,7 +213,7 @@ app:get("/mapa", function(self)
   self.tags_pop   = db.get_tags_populares(20)
   self.autores    = db.get_autores()
   self.lancamentos = db.get_lancamentos(false)
-  self.og_titulo    = "Mapa do Site — Portal Gamer"
+  self.og_titulo    = "Mapa do Site — TBX"
   self.og_url       = "http://localhost:8080/mapa"
   return { render = "mapa" }
 end)
@@ -223,7 +223,7 @@ end)
 app:get("/ranking", function(self)
   self.jogos         = db.get_jogos()
   self.og_titulo     = "Ranking de Jogos"
-  self.og_descricao  = "Veja o ranking dos jogos mais populares do momento no Portal Gamer."
+  self.og_descricao  = "Veja o ranking dos jogos mais populares do momento no TBX."
   self.og_url        = "http://localhost:8080/ranking"
   return { render = "ranking" }
 end)
@@ -239,7 +239,7 @@ app:get("/jogos/:nome", function(self)
   self.noticias     = db.get_noticias_do_jogo(nome)
   self.og_titulo    = jogo.nome
   self.og_descricao = jogo.descricao ~= "" and jogo.descricao
-    or ("Notícias e informações sobre " .. jogo.nome .. " no Portal Gamer.")
+    or ("Notícias e informações sobre " .. jogo.nome .. " no TBX.")
   self.og_url       = "http://localhost:8080/jogos/" .. self.params.nome
   self.og_imagem    = jogo.imagem_url ~= "" and jogo.imagem_url or nil
   self.og_tipo      = "article"
@@ -435,7 +435,7 @@ app:get("/trending", function(self)
   local janela        = tonumber(self.params.h) or 24
   self.noticias       = db.get_trending(20, janela)
   self.janela         = janela
-  self.og_titulo      = "🔥 Trending — Portal Gamer"
+  self.og_titulo      = "🔥 Trending — TBX"
   self.og_descricao   = "As notícias mais quentes das últimas " .. janela .. " horas."
   self.og_url         = "http://localhost:8080/trending"
   return { render = "trending" }
@@ -630,7 +630,7 @@ app:get("/noticias/:id/pdf", function(self)
 <html lang="pt-BR">
 <head>
 <meta charset="UTF-8">
-<title>%s — Portal Gamer</title>
+<title>%s — TBX</title>
 <style>
   @page { margin: 2cm; }
   * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -650,7 +650,7 @@ app:get("/noticias/:id/pdf", function(self)
 </head>
 <body>
 <div class="header">
-  <div class="brand">🎮 Portal Gamer</div>
+  <div class="brand">🎮 TBX</div>
   <h1>%s</h1>
   <div class="meta">
     <span>📅 %s</span>
@@ -663,7 +663,7 @@ app:get("/noticias/:id/pdf", function(self)
 </div>
 %s
 <div class="corpo"><p>%s</p></div>
-<div class="footer">Portal Gamer — localhost:8080 — Gerado em %s</div>
+<div class="footer">TBX — localhost:8080 — Gerado em %s</div>
 <script class="no-print">window.onload = function(){ window.print(); }</script>
 </body></html>]],
     noticia.titulo,
@@ -693,7 +693,7 @@ app:get("/tag/:nome", function(self)
   self.pagina     = 1
   self.total_paginas = 1
   self.og_titulo    = "Tag: " .. nome
-  self.og_descricao = "Notícias com a tag " .. nome .. " no Portal Gamer."
+  self.og_descricao = "Notícias com a tag " .. nome .. " no TBX."
   self.og_url       = "http://localhost:8080/tag/" .. nome
   return { render = "noticias" }
 end)
@@ -701,8 +701,8 @@ end)
 
 app:get("/stats", function(self)
   self.stats        = db.get_estatisticas()
-  self.og_titulo    = "Estatísticas — Portal Gamer"
-  self.og_descricao = "Números e estatísticas do Portal Gamer."
+  self.og_titulo    = "Estatísticas — TBX"
+  self.og_descricao = "Números e estatísticas do TBX."
   self.og_url       = "http://localhost:8080/stats"
   return { render = "stats" }
 end)
@@ -798,7 +798,7 @@ end)
     '<?xml version="1.0" encoding="UTF-8"?>',
     '<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">',
     '  <channel>',
-    '    <title>Portal Gamer</title>',
+    '    <title>TBX</title>',
     '    <link>http://localhost:8080</link>',
     '    <description>As últimas notícias do mundo dos games</description>',
     '    <language>pt-BR</language>',
@@ -904,8 +904,8 @@ app:post("/admin/upload/imagem", function(self)
 end)
 
 app:get("/api/docs", function(self)
-  self.og_titulo    = "API — Portal Gamer"
-  self.og_descricao = "Documentação da API pública do Portal Gamer."
+  self.og_titulo    = "API — TBX"
+  self.og_descricao = "Documentação da API pública do TBX."
   self.og_url       = "http://localhost:8080/api/docs"
   return { render = "api_docs" }
 end)
@@ -1038,8 +1038,8 @@ app:post("/admin/upload/imagem", function(self)
 end)
 
 app:get("/api/docs", function(self)
-  self.og_titulo    = "API — Portal Gamer"
-  self.og_descricao = "Documentação da API pública do Portal Gamer."
+  self.og_titulo    = "API — TBX"
+  self.og_descricao = "Documentação da API pública do TBX."
   self.og_url       = "http://localhost:8080/api/docs"
   return { render = "api_docs" }
 end)
@@ -1125,15 +1125,17 @@ app:post("/admin/noticias/nova", function(self)
     self.session.form_erro = "Título e conteúdo são obrigatórios."
     return { redirect_to = "/admin/noticias/nova" }
   end
+  local credito_url = trim(self.params.credito_url or "")
   local id = db.criar_noticia(titulo, conteudo, trim(self.params.jogo),
                trim(self.params.categoria), self.params.destaque == "1")
   if tags_str ~= "" then db.salvar_tags_noticia(id, tags_str) end
   local conn = db.connect()
   conn:exec(string.format(
-    "UPDATE noticias SET imagem_url='%s', autor_id=%s, publicar_em='%s' WHERE id=%d",
+    "UPDATE noticias SET imagem_url='%s', autor_id=%s, publicar_em='%s', credito_url='%s' WHERE id=%d",
     imagem_url:gsub("'","''"),
     autor_id and tostring(autor_id) or "NULL",
     publicar_em:gsub("'","''"),
+    credito_url:gsub("'","''"),
     tonumber(id)
   ))
   db.log("criar_noticia", "noticias", "ID "..id.." — "..titulo, ngx.var.remote_addr or "")
@@ -1179,11 +1181,13 @@ app:post("/admin/noticias/:id/editar", function(self)
     trim(self.params.jogo), trim(self.params.categoria),
     self.params.destaque == "1")
   db.salvar_tags_noticia(self.params.id, tags_str)
+  local credito_url = trim(self.params.credito_url or "")
   local conn = db.connect()
   conn:exec(string.format(
-    "UPDATE noticias SET imagem_url='%s', autor_id=%s WHERE id=%d",
+    "UPDATE noticias SET imagem_url='%s', autor_id=%s, credito_url='%s' WHERE id=%d",
     imagem_url:gsub("'","''"),
     autor_id and tostring(autor_id) or "NULL",
+    credito_url:gsub("'","''"),
     tonumber(self.params.id)
   ))
   db.log("editar_noticia", "noticias", "ID "..self.params.id.." — "..titulo, ngx.var.remote_addr or "")
@@ -1396,7 +1400,7 @@ app:get("/comparar", function(self)
     self.id_a       = id_a
     self.id_b       = id_b
   end
-  self.og_titulo    = "Comparar Jogos — Portal Gamer"
+  self.og_titulo    = "Comparar Jogos — TBX"
   self.og_url       = "http://localhost:8080/comparar"
   return { render = "comparar_jogos" }
 end)
@@ -1408,7 +1412,7 @@ app:get("/autor/:id", function(self)
   if not autor then return { status = 404, render = "erro" } end
   self.autor    = autor
   self.noticias = db.get_noticias_do_autor(self.params.id)
-  self.og_titulo    = autor.nome .. " — Portal Gamer"
+  self.og_titulo    = autor.nome .. " — TBX"
   self.og_descricao = autor.bio ~= "" and autor.bio or "Notícias de " .. autor.nome
   self.og_url       = "http://localhost:8080/autor/" .. self.params.id
   return { render = "autor" }
@@ -1450,7 +1454,7 @@ app:get("/galeria", function(self)
       self.jogo_atual  = jogo
     end
   end
-  self.og_titulo    = "Galeria de Jogos — Portal Gamer"
+  self.og_titulo    = "Galeria de Jogos — TBX"
   self.og_url       = "http://localhost:8080/galeria"
   return { render = "galeria" }
 end)
@@ -1500,7 +1504,7 @@ app:get("/favoritos", function(self)
   local leitor_id    = get_leitor_id(self)
   self.favoritos     = db.get_favoritos(leitor_id)
   self.total         = db.count_favoritos(leitor_id)
-  self.og_titulo     = "Meus Favoritos — Portal Gamer"
+  self.og_titulo     = "Meus Favoritos — TBX"
   self.og_url        = "http://localhost:8080/favoritos"
   return { render = "favoritos" }
 end)
@@ -1727,7 +1731,7 @@ app:get("/feed", function(self)
   local leitor_id   = get_leitor_id(self)
   self.noticias     = db.get_feed_personalizado(leitor_id, 20)
   self.tem_historico = db.get_historico_leituras(leitor_id, 1, 1).total > 0
-  self.og_titulo    = "Meu Feed — Portal Gamer"
+  self.og_titulo    = "Meu Feed — TBX"
   self.og_descricao = "Notícias selecionadas para você com base no seu histórico."
   self.og_url       = "http://localhost:8080/feed"
   return { render = "feed_personalizado" }
@@ -1774,7 +1778,7 @@ app:get("/ranking/xp", function(self)
     local info = db.calcular_nivel(r.xp)
     r.nivel_info = info
   end
-  self.og_titulo   = "Ranking de Leitores — Portal Gamer"
+  self.og_titulo   = "Ranking de Leitores — TBX"
   self.og_url      = "http://localhost:8080/ranking/xp"
   return { render = "ranking_xp" }
 end)
@@ -1803,7 +1807,7 @@ app:get("/torneios", function(self)
   for _, t in ipairs(self.torneios) do
     self.inscricoes[t.id] = db.is_inscrito(t.id, leitor_id)
   end
-  self.og_titulo    = "Torneios de E-Sports — Portal Gamer"
+  self.og_titulo    = "Torneios de E-Sports — TBX"
   self.og_url       = "http://localhost:8080/torneios"
   return { render = "torneios" }
 end)
@@ -1905,7 +1909,7 @@ end)
 app:get("/manifest.json", function(self)
   ngx.header["Content-Type"] = "application/manifest+json"
   return { layout = false, [[{
-  "name": "Portal Gamer",
+  "name": "TBX",
   "short_name": "PortalGamer",
   "description": "Notícias, rankings e análises do mundo dos games.",
   "start_url": "/",
@@ -1994,7 +1998,7 @@ self.addEventListener('fetch', event => {
 end)
 
 app:get("/offline", function(self)
-  self.og_titulo = "Sem conexão — Portal Gamer"
+  self.og_titulo = "Sem conexão — TBX"
   return { render = "offline" }
 end)
 
@@ -2009,7 +2013,7 @@ app:get("/perfil/stats", function(self)
   self.nivel_info    = db.calcular_nivel(config.xp or 0)
   self.leitor_avatar = config.avatar
   self.leitor_nome   = config.nome or "Perfil"
-  self.og_titulo     = "Minhas Estatísticas — Portal Gamer"
+  self.og_titulo     = "Minhas Estatísticas — TBX"
   self.og_url        = "http://localhost:8080/perfil/stats"
   return { render = "perfil_stats" }
 end)
