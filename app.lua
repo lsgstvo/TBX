@@ -1988,4 +1988,130 @@ app:get("/offline", function(self)
 end)
 
 
+-- ─── Reviews / Análises ───────────────────────────────────────────────────────
+
+app:get("/reviews", function(self)
+  self.reviews      = db.get_reviews(false)
+  self.og_titulo    = "Reviews & Análises — Portal Gamer"
+  self.og_descricao = "Análises editoriais aprofundadas dos melhores games."
+  self.og_url       = "http://localhost:8080/reviews"
+  return { render = "reviews" }
+end)
+
+app:get("/reviews/:id", function(self)
+  local review = db.get_review(self.params.id)
+  if not review then return { status = 404, render = "erro" } end
+  db.incrementar_views_review(self.params.id)
+  self.review        = review
+  self.tempo_leitura = db.tempo_leitura(review.conteudo)
+  self.og_titulo     = "Review: " .. review.jogo_nome
+  self.og_descricao  = review.veredicto ~= "" and review.veredicto or review.conteudo:sub(1,160)
+  self.og_url        = "http://localhost:8080/reviews/" .. review.id
+  self.og_imagem     = review.imagem_url ~= "" and review.imagem_url or review.jogo_img
+  self.og_tipo       = "article"
+  return { render = "review_detalhe" }
+end)
+
+-- Admin: CRUD de reviews
+app:get("/admin/reviews", function(self)
+  if not auth.require_login(self) then return end
+  self.reviews = db.get_reviews(false)
+  return { render = "admin.admin_reviews", layout = "admin.admin_layout" }
+end)
+
+app:get("/admin/reviews/novo", function(self)
+  if not auth.require_login(self) then return end
+  self.jogos   = db.get_jogos()
+  self.autores = db.get_autores()
+  self.erro    = self.session.form_erro; self.session.form_erro = nil
+  return { render = "admin.admin_review_form", layout = "admin.admin_layout" }
+end)
+
+app:post("/admin/reviews/novo", function(self)
+  if not auth.require_login(self) then return end
+  local titulo = trim(self.params.titulo or "")
+  local conteudo = trim(self.params.conteudo or "")
+  if titulo == "" or conteudo == "" then
+    self.session.form_erro = "Título e conteúdo são obrigatórios."
+    return { redirect_to = "/admin/reviews/novo" }
+  end
+  local notas = {
+    geral    = tonumber(self.params.nota_geral)    or 0,
+    gameplay = tonumber(self.params.nota_gameplay) or 0,
+    graficos = tonumber(self.params.nota_graficos) or 0,
+    historia = tonumber(self.params.nota_historia) or 0,
+    audio    = tonumber(self.params.nota_audio)    or 0,
+  }
+  db.criar_review(
+    tonumber(self.params.jogo_id), titulo, conteudo, notas,
+    trim(self.params.pros), trim(self.params.contras),
+    trim(self.params.veredicto),
+    tonumber(self.params.autor_id) or nil,
+    trim(self.params.imagem_url),
+    self.params.destaque == "1"
+  )
+  db.log("criar_review", "reviews", titulo, ngx.var.remote_addr or "")
+  return { redirect_to = "/admin/reviews" }
+end)
+
+app:get("/admin/reviews/:id/editar", function(self)
+  if not auth.require_login(self) then return end
+  local review = db.get_review(self.params.id)
+  if not review then return { status = 404, render = "erro" } end
+  self.review  = review
+  self.jogos   = db.get_jogos()
+  self.autores = db.get_autores()
+  self.erro    = self.session.form_erro; self.session.form_erro = nil
+  return { render = "admin.admin_review_editar", layout = "admin.admin_layout" }
+end)
+
+app:post("/admin/reviews/:id/editar", function(self)
+  if not auth.require_login(self) then return end
+  local titulo   = trim(self.params.titulo   or "")
+  local conteudo = trim(self.params.conteudo or "")
+  if titulo == "" or conteudo == "" then
+    self.session.form_erro = "Título e conteúdo são obrigatórios."
+    return { redirect_to = "/admin/reviews/" .. self.params.id .. "/editar" }
+  end
+  local notas = {
+    geral    = tonumber(self.params.nota_geral)    or 0,
+    gameplay = tonumber(self.params.nota_gameplay) or 0,
+    graficos = tonumber(self.params.nota_graficos) or 0,
+    historia = tonumber(self.params.nota_historia) or 0,
+    audio    = tonumber(self.params.nota_audio)    or 0,
+  }
+  db.editar_review(
+    self.params.id, tonumber(self.params.jogo_id), titulo, conteudo, notas,
+    trim(self.params.pros), trim(self.params.contras),
+    trim(self.params.veredicto),
+    tonumber(self.params.autor_id) or nil,
+    trim(self.params.imagem_url),
+    self.params.destaque == "1"
+  )
+  return { redirect_to = "/admin/reviews" }
+end)
+
+app:post("/admin/reviews/:id/deletar", function(self)
+  if not auth.require_login(self) then return end
+  db.deletar_review(self.params.id)
+  return { redirect_to = "/admin/reviews" }
+end)
+
+-- ─── API: Tema customizável ───────────────────────────────────────────────────
+-- Salva preferências de tema do leitor (cor accent, fonte, etc.)
+-- Tudo via localStorage no cliente — sem rota server-side necessária
+-- A rota abaixo apenas valida e confirma
+app:post("/api/tema", function(self)
+  local leitor_id = get_leitor_id(self)
+  local tema      = trim(self.params.tema or "dark")
+  local accent    = trim(self.params.accent or "")
+  -- Salva na sessão para persistência básica
+  self.session.tema_custom = {
+    tema   = tema,
+    accent = accent ~= "" and accent or nil,
+  }
+  return { json = { status = "ok" } }
+end)
+
+
 return app

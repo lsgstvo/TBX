@@ -68,7 +68,8 @@ body {
   align-items: center;
   gap: 1.5rem;
   flex-wrap: nowrap;
-  min-height: 52px; /* Altura mínima baseada no logo */
+  min-height: 52px;
+  /* Altura mínima baseada no logo */
 }
 
 .site-brand {
@@ -82,7 +83,8 @@ body {
   white-space: nowrap;
   letter-spacing: -0.02em;
   margin-right: auto;
-  line-height: 1; /* Unifica o alinhamento do texto com a imagem */
+  line-height: 1;
+  /* Unifica o alinhamento do texto com a imagem */
 }
 
 .brand-logo {
@@ -126,7 +128,8 @@ body {
 }
 
 .site-header nav {
-  display: none; /* Agora no drawer */
+  display: none;
+  /* Agora no drawer */
 }
 
 /* Ícone de notificações e outros botões de ícone */
@@ -6066,14 +6069,14 @@ a.indice-letra:hover,
 .xp-progress-mini {
   width: 30px;
   height: 4px;
-  background: rgba(0,0,0,0.1);
+  background: rgba(0, 0, 0, 0.1);
   border-radius: 2px;
   overflow: hidden;
   margin-left: .2rem;
 }
 
 [data-tema="dark"] .xp-progress-mini {
-  background: rgba(255,255,255,0.1);
+  background: rgba(255, 255, 255, 0.1);
 }
 
 .xp-bar-mini {
@@ -6615,16 +6618,20 @@ a.torneio-nome:hover {
   .site-header {
     padding: 0.5rem 0;
   }
+
   .site-brand {
     font-size: 1.2rem;
   }
+
   .header-actions {
     gap: 0.5rem;
   }
+
   .header-busca.visible .busca-global-input {
     width: 40px;
     padding-left: 1.8rem;
   }
+
   .header-busca.visible .busca-global-input:focus {
     width: 150px;
     position: absolute;
@@ -6637,6 +6644,7 @@ a.torneio-nome:hover {
 .header-icon-btn {
   position: relative;
 }
+
 /* ── Redesign: Notificações Premium ────────────────────────────────────── */
 .notificacoes-hero {
   margin-bottom: 2rem;
@@ -6757,4 +6765,163 @@ a.torneio-nome:hover {
   color: var(--primary-color);
   background: rgba(99, 102, 241, 0.1);
   transform: translateY(-1px);
+}
+
+/* ── Sistema de temas customizáveis ─────────────────────────────────────── */
+
+/* Botão ativo (quando painel está aberto) */
+.tema-btn-ativo {
+  background: rgba(99, 102, 241, .18);
+  border-color: var(--primary-color);
+  color: var(--primary-color);
+}
+
+/* Painel: OCULTO por padrão */
+.custom-tema-panel {
+  display: none;
+  position: fixed;
+  z-index: 9000;
+  width: 280px;
+  background: var(--surface-color);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, .4);
+  overflow: hidden;
+}
+
+/* Painel: visível apenas com esta classe (adicionada pelo JS ao clicar em 🎨) */
+.custom-tema-panel.custom-tema-visivel {
+  display: block;
+}
+
+.custom-tema-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: .7rem 1rem;
+  border-bottom: 1px solid var(--border-color);
+  font-weight: 700;
+  font-size: .88rem;
+}
+
+.custom-tema-fechar {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--text-muted);
+  font-size: 1rem;
+  padding: .1rem .4rem;
+  border-radius: 4px;
+  transition: color .15s;
+}
+
+.custom-tema-fechar:hover {
+  color: var(--accent-color);
+}
+
+.custom-tema-body {
+  padding: .8rem 1rem;
+}
+
+.custom-tema-label {
+  display: block;
+  font-size: .72rem;
+  font-weight: 700;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  margin-bottom: .5rem;
+}
+
+.tema-presets {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: .3rem;
+}
+
+.tema-preset-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: .15rem;
+  padding: .45rem .2rem;
+  border-radius: 8px;
+  border: 1px solid var(--border-color);
+  background: none;
+  cursor: pointer;
+  font-family: inherit;
+  transition: border-color .15s, background .15s;
+}
+
+.tema-preset-btn:hover {
+  border-color: var(--p-accent, var(--primary-color));
+  background: rgba(99, 102, 241, .06);
+}
+
+.tema-preset-btn span {
+  font-size: .62rem;
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+.tema-accent-row {
+  display: flex;
+  align-items: center;
+  gap: .6rem;
+}
+
+.accent-picker {
+  width: 38px;
+  height: 30px;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  cursor: pointer;
+  background: none;
+  padding: 2px;
+}
+
+.accent-reset {
+  font-size: .75rem;
+  color: var(--text-muted);
+  background: none;
+  border: 1px solid var(--border-color);
+  padding: .2rem .55rem;
+  border-radius: 6px;
+  cursor: pointer;
+  font-family: inherit;
+  transition: all .15s;
+}
+
+.accent-reset:hover {
+  border-color: var(--primary-color);
+  color: var(--primary-color);
+}
+
+.fonte-row {
+  display: flex;
+  gap: .35rem;
+}
+
+.fonte-btn {
+  padding: .25rem .5rem;
+  border-radius: 5px;
+  font-size: .78rem;
+  font-weight: 600;
+  border: 1px solid var(--border-color);
+  background: none;
+  cursor: pointer;
+  color: var(--text-muted);
+  font-family: inherit;
+  transition: all .15s;
+}
+
+.fonte-btn:hover {
+  border-color: var(--primary-color);
+  color: var(--primary-color);
+}
+
+.fonte-ativa {
+  background: var(--primary-color) !important;
+  color: white !important;
+  border-color: var(--primary-color) !important;
 }

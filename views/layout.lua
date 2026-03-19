@@ -28,18 +28,21 @@ return Widget:extend(function(self)
       meta({ name = "twitter:description", content = og_desc })
       meta({ name = "twitter:image",       content = og_img })
       link({ rel = "canonical", href = og_url })
+      -- Aplica tema antes do CSS para evitar flash branco
       script(function()
         raw([[
           (function() {
-            var tema = localStorage.getItem('tema') || 'dark';
+            var c = JSON.parse(localStorage.getItem('custom_tema') || '{}');
+            var tema = c.tema || localStorage.getItem('tema') || 'dark';
             document.documentElement.setAttribute('data-tema', tema);
+            if (c.accent) document.documentElement.style.setProperty('--primary-color', c.accent);
+            if (c.fonte)  document.documentElement.style.fontSize = c.fonte;
           })();
         ]])
       end)
-      link({ rel = "stylesheet", href = "/static/style.css?v=4" })
+      link({ rel = "stylesheet", href = "/static/style.css?v=5" })
       link({ rel = "alternate", type = "application/rss+xml",
              title = "Portal Gamer RSS", href = "/rss" })
-      -- PWA
       link({ rel = "manifest", href = "/manifest.json" })
       meta({ name = "theme-color", content = "#6366f1" })
       meta({ name = "mobile-web-app-capable", content = "yes" })
@@ -51,18 +54,19 @@ return Widget:extend(function(self)
     end)
 
     body(function()
+
+      -- ── Header: UMA linha ─────────────────────────────────────────────────
       header({ class = "site-header" }, function()
         div({ class = "container header-inner" }, function()
-          button({ id = "drawer-toggle", class = "drawer-toggle-btn", 
+          button({ id = "drawer-toggle", class = "drawer-toggle-btn",
                    title = "Menu", onclick = "toggleDrawer()" }, "☰")
 
           a({ href = "/", class = "site-brand" }, function()
             img({ src = "/static/icon-192.png", class = "brand-logo", alt = "Logo" })
             span("Portal Gamer")
           end)
-          
+
           div({ class = "header-actions" }, function()
-            -- Busca sempre visível
             div({ class = "header-busca visible", id = "header-busca" }, function()
               button({ id = "voice-btn", class = "search-toggle-btn voice-btn",
                        title = "Busca por voz", onclick = "iniciarBuscaVoz()" }, "🎤")
@@ -73,37 +77,76 @@ return Widget:extend(function(self)
 
             if self.leitor_nivel_info then
               local niv = self.leitor_nivel_info
-              div({ class = "header-xp-badge", title = string.format("Nível %d: %s (%d/%d XP)", 
-                    niv.nivel.nivel, niv.nivel.nome, niv.xp, niv.proximo and niv.proximo.xp_min or niv.xp) }, function()
+              div({ class = "header-xp-badge",
+                    title = string.format("Nível %d: %s (%d/%d XP)",
+                      niv.nivel.nivel, niv.nivel.nome,
+                      niv.xp, niv.proximo and niv.proximo.xp_min or niv.xp) }, function()
                 span({ class = "xp-ico" }, niv.nivel.ico)
                 span({ class = "xp-num" }, tostring(niv.nivel.nivel))
                 div({ class = "xp-progress-mini" }, function()
-                  div({ class = "xp-bar-mini", style = "width:" .. niv.pct_proximo .. "%" })
+                  div({ class = "xp-bar-mini",
+                        style = "width:" .. niv.pct_proximo .. "%" })
                 end)
               end)
             end
 
-            a({ href = "/notificacoes", class = "header-icon-btn", title = "Notificações" }, function()
+            a({ href = "/notificacoes", class = "header-icon-btn",
+                title = "Notificações" }, function()
               text("🔔")
               if self.notificacoes_count and self.notificacoes_count > 0 then
-                span({ id = "notificacoes-badge", class = "header-badge" }, tostring(self.notificacoes_count))
+                span({ id = "notificacoes-badge", class = "header-badge" },
+                  tostring(self.notificacoes_count))
               end
             end)
-            
+
             button({ id = "tema-toggle", class = "tema-btn",
-                     title = "Alternar tema", onclick = "toggleTema()" }, "☀️")
+                     title = "Alternar claro/escuro",
+                     onclick = "toggleTema()" }, "☀️")
+
+            button({ id = "custom-tema-btn", class = "tema-btn",
+                     title = "Personalizar cores",
+                     onclick = "toggleCustomTema()" }, "🎨")
           end)
         end)
       end)
 
-      -- Side Drawer & Overlay
-      div({ id = "drawer-overlay", class = "drawer-overlay", onclick = "toggleDrawer()" })
+      -- ── Painel flutuante de tema — OCULTO POR PADRÃO ─────────────────────
+      -- Aparece apenas ao clicar no botão 🎨
+      div({ id = "custom-tema-panel", class = "custom-tema-panel" }, function()
+        div({ class = "custom-tema-header" }, function()
+          span("🎨 Personalizar Tema")
+          button({ class = "custom-tema-fechar",
+                   onclick = "toggleCustomTema()" }, "✕")
+        end)
+        div({ class = "custom-tema-body" }, function()
+          p({ class = "custom-tema-label" }, "Esquema de cores:")
+          div({ id = "tema-presets", class = "tema-presets" })
+          p({ class = "custom-tema-label", style = "margin-top:.8rem" },
+            "Cor de destaque:")
+          div({ class = "tema-accent-row" }, function()
+            input({ type = "color", id = "accent-picker", class = "accent-picker",
+                    value = "#6366f1", oninput = "aplicarAccent(this.value)" })
+            button({ class = "accent-reset", onclick = "resetAccent()" }, "Resetar")
+          end)
+          p({ class = "custom-tema-label", style = "margin-top:.8rem" },
+            "Tamanho da fonte:")
+          div({ class = "fonte-row" }, function()
+            for _, f in ipairs({ "14px", "16px", "18px", "20px" }) do
+              button({ class = "fonte-btn", ["data-size"] = f,
+                       onclick = "aplicarFonte('" .. f .. "')" }, f)
+            end
+          end)
+        end)
+      end)
+
+      -- ── Drawer lateral ────────────────────────────────────────────────────
+      div({ id = "drawer-overlay", class = "drawer-overlay",
+            onclick = "toggleDrawer()" })
       div({ id = "side-drawer", class = "side-drawer" }, function()
         div({ class = "drawer-header" }, function()
           span({ class = "drawer-title" }, "Navegação")
           button({ class = "drawer-close", onclick = "toggleDrawer()" }, "✕")
         end)
-        
         div({ class = "drawer-profile" }, function()
           a({ href = "/perfil", class = "drawer-perfil-card" }, function()
             span({ class = "drawer-avatar" }, self.leitor_icon or "👤")
@@ -113,31 +156,29 @@ return Widget:extend(function(self)
             end)
           end)
         end)
-
         nav({ class = "drawer-nav" }, function()
           a({ href = "/" },         "🏠 Início")
           a({ href = "/noticias" }, "📰 Notícias")
           a({ href = "/trending" }, "🔥 Trending")
           a({ href = "/ranking" },  "🏆 Ranking")
+          a({ href = "/reviews" },  "🎮 Reviews")
+          a({ href = "/torneios" }, "⚔️ Torneios")
+          a({ href = "/feed" },     "⚡ Feed")
+          a({ href = "/glossario" },"📖 Glossário")
           a({ href = "/sobre" },    "ℹ️ Sobre")
-          a({ href = "/feed" },      "⚡ Feed")
-          a({ href = "/glossario" }, "📖 Glossário")
           a({ href = "/admin" },    "⚙️ Admin")
-          -- PWA Install Button
-          button({ id = "pwa-install-btn", onclick = "instalarPWA()", style = "margin-top: 1.5rem; display: none;" }, function()
+          button({ id = "pwa-install-btn", onclick = "instalarPWA()",
+                   style = "margin-top:1.5rem;display:none;" }, function()
             span("📲 Instalar App")
           end)
         end)
       end)
 
-      -- Mensagem de newsletter (flash — lido e zerado no handler do app.lua)
       if self.flash_newsletter_msg then
         div({ class = "container" }, function()
           div({ class = "newsletter-flash" }, self.flash_newsletter_msg)
         end)
       end
-
-      -- Mensagem de comentário ok (flash — lido e zerado no handler do app.lua)
       if self.flash_coment_ok then
         div({ class = "container" }, function()
           div({ class = "newsletter-flash coment-ok-flash" }, self.flash_coment_ok)
@@ -148,31 +189,23 @@ return Widget:extend(function(self)
         self:content_for("inner")
       end)
 
-      -- Footer com widget de newsletter
       footer({ class = "site-footer" }, function()
         div({ class = "container" }, function()
-          -- Widget newsletter
           div({ class = "footer-newsletter" }, function()
             div({ class = "newsletter-texto" }, function()
               span({ class = "newsletter-titulo" }, "📧 Fique por dentro!")
               span({ class = "newsletter-sub" },
                 "Receba as novidades do Portal Gamer no seu e-mail.")
             end)
-            form({ method  = "POST",
-                   action  = "/newsletter/cadastrar",
-                   class   = "newsletter-form" }, function()
-              input({ type  = "hidden", name  = "origem",
-                      value = self.og_url or "/" })
-              input({ type        = "email",
-                      name        = "email",
-                      placeholder = "seu@email.com",
-                      class       = "newsletter-input",
-                      required    = true })
+            form({ method = "POST", action = "/newsletter/cadastrar",
+                   class = "newsletter-form" }, function()
+              input({ type = "hidden", name = "origem", value = self.og_url or "/" })
+              input({ type = "email", name = "email", placeholder = "seu@email.com",
+                      class = "newsletter-input", required = true })
               button({ type = "submit", class = "newsletter-btn" }, "Inscrever →")
             end)
           end)
 
-          -- Widget de citação aleatória
           div({ id = "citacao-widget", class = "footer-citacao" }, function()
             div({ class = "citacao-aspas" }, "“")
             p({ id = "citacao-texto", class = "citacao-texto" }, "Carregando citação...")
@@ -194,36 +227,138 @@ return Widget:extend(function(self)
 
       script(function()
         raw([[
+          // ── Tema: inicializa ícone ────────────────────────────────────────
           (function() {
-            var tema = localStorage.getItem('tema') || 'dark';
-            var btn  = document.getElementById('tema-toggle');
+            var c   = JSON.parse(localStorage.getItem('custom_tema') || '{}');
+            var btn = document.getElementById('tema-toggle');
+            var tema = c.tema || localStorage.getItem('tema') || 'dark';
             if (btn) btn.textContent = tema === 'dark' ? '\u2600\uFE0F' : '\uD83C\uDF19';
           })();
 
+          // ── Toggle claro/escuro ───────────────────────────────────────────
           function toggleTema() {
             var atual = document.documentElement.getAttribute('data-tema') || 'dark';
             var novo  = atual === 'dark' ? 'light' : 'dark';
             document.documentElement.setAttribute('data-tema', novo);
+            var c = JSON.parse(localStorage.getItem('custom_tema') || '{}');
+            c.tema = novo;
+            localStorage.setItem('custom_tema', JSON.stringify(c));
             localStorage.setItem('tema', novo);
             var btn = document.getElementById('tema-toggle');
             if (btn) btn.textContent = novo === 'dark' ? '\u2600\uFE0F' : '\uD83C\uDF19';
           }
 
+          // ── Painel de customização ────────────────────────────────────────
+          (function() {
+            var PRESETS = [
+              { nome:'Escuro',   tema:'dark',  accent:'#6366f1', ico:'🌙' },
+              { nome:'Claro',    tema:'light', accent:'#4f46e5', ico:'☀️' },
+              { nome:'Roxo',     tema:'dark',  accent:'#8b5cf6', ico:'💜' },
+              { nome:'Verde',    tema:'dark',  accent:'#10b981', ico:'💚' },
+              { nome:'Vermelho', tema:'dark',  accent:'#f43f5e', ico:'❤️' },
+              { nome:'Laranja',  tema:'dark',  accent:'#f97316', ico:'🔶' },
+              { nome:'Rosa',     tema:'dark',  accent:'#ec4899', ico:'🩷' },
+              { nome:'Azul',     tema:'light', accent:'#0ea5e9', ico:'💙' },
+            ];
+
+            var presetsEl = document.getElementById('tema-presets');
+            if (presetsEl) {
+              presetsEl.innerHTML = PRESETS.map(function(p, i) {
+                return '<button class="tema-preset-btn" onclick="aplicarPreset(' + i + ')" '
+                  + 'title="' + p.nome + '" style="--p-accent:' + p.accent + '">'
+                  + p.ico + '<span>' + p.nome + '</span></button>';
+              }).join('');
+            }
+
+            var saved = JSON.parse(localStorage.getItem('custom_tema') || '{}');
+            if (saved.accent) {
+              var pk = document.getElementById('accent-picker');
+              if (pk) pk.value = saved.accent;
+            }
+            if (saved.fonte) {
+              document.querySelectorAll('.fonte-btn').forEach(function(b) {
+                b.classList.toggle('fonte-ativa', b.dataset.size === saved.fonte);
+              });
+            }
+
+            window.toggleCustomTema = function() {
+              var panel = document.getElementById('custom-tema-panel');
+              var btn   = document.getElementById('custom-tema-btn');
+              if (!panel || !btn) return;
+              var abrindo = !panel.classList.contains('custom-tema-visivel');
+              panel.classList.toggle('custom-tema-visivel', abrindo);
+              btn.classList.toggle('tema-btn-ativo', abrindo);
+              if (abrindo) {
+                var rect = btn.getBoundingClientRect();
+                panel.style.top   = (rect.bottom + 8) + 'px';
+                panel.style.right = (window.innerWidth - rect.right) + 'px';
+                panel.style.left  = 'auto';
+              }
+            };
+
+            document.addEventListener('click', function(e) {
+              var panel = document.getElementById('custom-tema-panel');
+              var btn   = document.getElementById('custom-tema-btn');
+              if (!panel || !btn) return;
+              if (!panel.contains(e.target) && !btn.contains(e.target)) {
+                panel.classList.remove('custom-tema-visivel');
+                btn.classList.remove('tema-btn-ativo');
+              }
+            });
+
+            window.aplicarPreset = function(i) {
+              var p = PRESETS[i];
+              var s = JSON.parse(localStorage.getItem('custom_tema') || '{}');
+              s.tema = p.tema; s.accent = p.accent;
+              document.documentElement.setAttribute('data-tema', p.tema);
+              document.documentElement.style.setProperty('--primary-color', p.accent);
+              localStorage.setItem('custom_tema', JSON.stringify(s));
+              localStorage.setItem('tema', p.tema);
+              var b = document.getElementById('tema-toggle');
+              if (b) b.textContent = p.tema === 'dark' ? '\u2600\uFE0F' : '\uD83C\uDF19';
+              var pk = document.getElementById('accent-picker');
+              if (pk) pk.value = p.accent;
+            };
+
+            window.aplicarAccent = function(cor) {
+              document.documentElement.style.setProperty('--primary-color', cor);
+              var s = JSON.parse(localStorage.getItem('custom_tema') || '{}');
+              s.accent = cor;
+              localStorage.setItem('custom_tema', JSON.stringify(s));
+            };
+
+            window.resetAccent = function() {
+              document.documentElement.style.removeProperty('--primary-color');
+              var s = JSON.parse(localStorage.getItem('custom_tema') || '{}');
+              delete s.accent;
+              localStorage.setItem('custom_tema', JSON.stringify(s));
+              var tema = document.documentElement.getAttribute('data-tema') || 'dark';
+              var cor  = tema === 'dark' ? '#6366f1' : '#4f46e5';
+              var pk = document.getElementById('accent-picker');
+              if (pk) pk.value = cor;
+            };
+
+            window.aplicarFonte = function(t) {
+              document.documentElement.style.fontSize = t;
+              var s = JSON.parse(localStorage.getItem('custom_tema') || '{}');
+              s.fonte = t;
+              localStorage.setItem('custom_tema', JSON.stringify(s));
+              document.querySelectorAll('.fonte-btn').forEach(function(b) {
+                b.classList.toggle('fonte-ativa', b.dataset.size === t);
+              });
+            };
+          })();
+
+          // ── Drawer ────────────────────────────────────────────────────────
           function toggleDrawer() {
-            var drawer = document.getElementById('side-drawer');
+            var drawer  = document.getElementById('side-drawer');
             var overlay = document.getElementById('drawer-overlay');
             drawer.classList.toggle('aberto');
             overlay.classList.toggle('aberto');
             document.body.style.overflow = drawer.classList.contains('aberto') ? 'hidden' : '';
           }
 
-          function toggleSearch() {
-            // Simplificado pois agora está sempre visível no desktop
-            var input = document.getElementById('busca-global');
-            input.focus();
-          }
-
-          // Busca global AJAX
+          // ── Busca AJAX ────────────────────────────────────────────────────
           (function() {
             var input = document.getElementById('busca-global');
             var res   = document.getElementById('busca-resultados');
@@ -232,124 +367,97 @@ return Widget:extend(function(self)
             input.addEventListener('input', function() {
               clearTimeout(timer);
               var termo = input.value.trim();
-              if (termo.length < 2) { res.innerHTML=''; res.classList.remove('aberto'); return; }
+              if (termo.length < 2) { res.innerHTML = ''; res.classList.remove('aberto'); return; }
               timer = setTimeout(function() {
                 fetch('/api/busca?q=' + encodeURIComponent(termo))
-                  .then(function(r){ return r.json(); })
+                  .then(function(r) { return r.json(); })
                   .then(function(data) {
-                    if (!data.data||data.data.length===0) {
-                      res.innerHTML='<div class="busca-item busca-vazio">Nenhum resultado.</div>';
+                    if (!data.data || data.data.length === 0) {
+                      res.innerHTML = '<div class="busca-item busca-vazio">Nenhum resultado.</div>';
                     } else {
-                      res.innerHTML=data.data.map(function(n){
-                        return '<a class="busca-item" href="/noticias/'+n.id+'">'+
-                          '<span class="busca-item-titulo">'+n.titulo+'</span>'+
-                          '<span class="busca-item-meta">'+
-                            '<span class="tag">'+n.categoria+'</span>'+
-                            (n.jogo?'<span class="tag tag-jogo">'+n.jogo+'</span>':'')+
-                          '</span></a>';
+                      res.innerHTML = data.data.map(function(n) {
+                        return '<a class="busca-item" href="/noticias/' + n.id + '">'
+                          + '<span class="busca-item-titulo">' + n.titulo + '</span>'
+                          + '<span class="busca-item-meta">'
+                          + '<span class="tag">' + n.categoria + '</span>'
+                          + (n.jogo ? '<span class="tag tag-jogo">' + n.jogo + '</span>' : '')
+                          + '</span></a>';
                       }).join('');
                     }
                     res.classList.add('aberto');
-                  }).catch(function(){ res.classList.remove('aberto'); });
+                  }).catch(function() { res.classList.remove('aberto'); });
               }, 280);
             });
             document.addEventListener('click', function(e) {
-              var container = document.getElementById('header-busca');
-              if (!container.contains(e.target)) {
-                res.classList.remove('aberto');
-                container.classList.remove('aberto');
-                input.value = '';
+              var c = document.getElementById('header-busca');
+              if (c && !c.contains(e.target)) {
+                res.classList.remove('aberto'); input.value = '';
               }
             });
             input.addEventListener('keydown', function(e) {
-              if (e.key==='Escape') { res.classList.remove('aberto'); input.blur(); }
+              if (e.key === 'Escape') { res.classList.remove('aberto'); input.blur(); }
             });
           })();
+
           // ── Busca por Voz ─────────────────────────────────────────────────
           (function() {
             var btn = document.getElementById('voice-btn');
             if (!btn) return;
-            var SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-            if (!SpeechRecognition) {
-              btn.style.display = 'none';
-              return;
-            }
-            var rec = new SpeechRecognition();
-            rec.lang = 'pt-BR';
-            rec.interimResults = false;
-            rec.maxAlternatives = 1;
+            var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+            if (!SR) { btn.style.display = 'none'; return; }
+            var rec = new SR();
+            rec.lang = 'pt-BR'; rec.interimResults = false; rec.maxAlternatives = 1;
             btn.addEventListener('click', function() {
-              btn.classList.add('voice-ouvindo');
-              btn.textContent = '🔴';
-              rec.start();
+              btn.classList.add('voice-ouvindo'); btn.textContent = '🔴'; rec.start();
             });
             rec.onresult = function(e) {
               var termo = e.results[0][0].transcript;
-              btn.classList.remove('voice-ouvindo');
-              btn.textContent = '🎤';
-              // Abre a busca com o termo reconhecido
-              var input = document.getElementById('busca-global');
-              var headerBusca = document.getElementById('header-busca');
-              headerBusca.classList.add('aberto');
-              input.value = termo;
-              input.dispatchEvent(new Event('input'));
-              // Também redireciona para busca avançada se apertar Enter
-              input.focus();
+              btn.classList.remove('voice-ouvindo'); btn.textContent = '🎤';
+              var inp = document.getElementById('busca-global');
+              inp.value = termo; inp.dispatchEvent(new Event('input')); inp.focus();
             };
-            rec.onerror = function() {
-              btn.classList.remove('voice-ouvindo');
-              btn.textContent = '🎤';
-            };
-            rec.onend = function() {
+            rec.onerror = rec.onend = function() {
               btn.classList.remove('voice-ouvindo');
               if (btn.textContent === '🔴') btn.textContent = '🎤';
             };
             window.iniciarBuscaVoz = function() { rec.start(); };
           })();
 
-          // ── Citação Aleatória ─────────────────────────────────────────────
+          // ── Citação ───────────────────────────────────────────────────────
           (function() {
-            var widget = document.getElementById('citacao-widget');
-            if (!widget) return;
+            var w = document.getElementById('citacao-widget');
+            if (!w) return;
             fetch('/api/citacao')
               .then(function(r) { return r.json(); })
-              .then(function(data) {
-                if (data.status !== 'ok') {
-                  widget.style.display = 'none';
-                  return;
+              .then(function(d) {
+                if (d.status !== 'ok') { w.style.display = 'none'; return; }
+                var t = document.getElementById('citacao-texto');
+                var f = document.getElementById('citacao-fonte');
+                if (t) t.textContent = d.texto;
+                if (f) {
+                  var s = '';
+                  if (d.personagem && d.personagem !== '') s += d.personagem;
+                  if (d.jogo && d.jogo !== '') s += (s ? ' · ' : '') + d.jogo;
+                  f.textContent = s ? '— ' + s : '';
                 }
-                var texto = document.getElementById('citacao-texto');
-                var fonte = document.getElementById('citacao-fonte');
-                if (texto) texto.textContent = data.texto;
-                if (fonte) {
-                  var f = '';
-                  if (data.personagem && data.personagem !== '') f += data.personagem;
-                  if (data.jogo && data.jogo !== '') f += (f ? ' · ' : '') + data.jogo;
-                  fonte.textContent = f ? '— ' + f : '';
-                }
-              })
-              .catch(function() { widget.style.display = 'none'; });
+              }).catch(function() { w.style.display = 'none'; });
           })();
 
-          // ── PWA: Service Worker ───────────────────────────────────────────
+          // ── PWA ───────────────────────────────────────────────────────────
           if ('serviceWorker' in navigator) {
-            navigator.serviceWorker.register('/sw.js')
-              .catch(function() {});
+            navigator.serviceWorker.register('/sw.js').catch(function() {});
           }
-          // Prompt de instalação
-          var deferredPrompt;
+          var _dp;
           window.addEventListener('beforeinstallprompt', function(e) {
-            e.preventDefault();
-            deferredPrompt = e;
-            var btn = document.getElementById('pwa-install-btn');
-            if (btn) btn.style.display = 'flex';
+            e.preventDefault(); _dp = e;
+            var b = document.getElementById('pwa-install-btn');
+            if (b) b.style.display = 'flex';
           });
           window.instalarPWA = function() {
-            if (!deferredPrompt) return;
-            deferredPrompt.prompt();
-            deferredPrompt.userChoice.then(function() { deferredPrompt = null; });
+            if (!_dp) return;
+            _dp.prompt();
+            _dp.userChoice.then(function() { _dp = null; });
           };
-
         ]])
       end)
     end)

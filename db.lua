@@ -436,6 +436,32 @@ function M.connect()
     );
   ]])
 
+
+  -- Reviews/análises editoriais de jogos
+  db_conn:exec([[
+    CREATE TABLE IF NOT EXISTS reviews (
+      id           INTEGER PRIMARY KEY AUTOINCREMENT,
+      jogo_id      INTEGER NOT NULL,
+      titulo       TEXT    NOT NULL,
+      conteudo     TEXT    NOT NULL,
+      nota_geral   REAL    NOT NULL DEFAULT 0,
+      nota_gameplay REAL   NOT NULL DEFAULT 0,
+      nota_graficos REAL   NOT NULL DEFAULT 0,
+      nota_historia REAL   NOT NULL DEFAULT 0,
+      nota_audio   REAL    NOT NULL DEFAULT 0,
+      pros         TEXT    NOT NULL DEFAULT '',
+      contras      TEXT    NOT NULL DEFAULT '',
+      veredicto    TEXT    NOT NULL DEFAULT '',
+      autor_id     INTEGER,
+      imagem_url   TEXT    NOT NULL DEFAULT '',
+      destaque     INTEGER NOT NULL DEFAULT 0,
+      views        INTEGER NOT NULL DEFAULT 0,
+      criado_em    TEXT    NOT NULL DEFAULT (datetime('now')),
+      FOREIGN KEY (jogo_id)  REFERENCES jogos(id)   ON DELETE CASCADE,
+      FOREIGN KEY (autor_id) REFERENCES autores(id) ON DELETE SET NULL
+    );
+  ]])
+
   return db_conn
 end
 
@@ -3028,6 +3054,106 @@ function M.get_seo_global(pagina, por_pagina, ordem)
     pagina        = pagina,
     total_paginas = math.ceil(total / por_pagina),
   }
+end
+
+
+-- ─── Reviews / Análises ───────────────────────────────────────────────────────
+
+function M.get_reviews(apenas_destaque)
+  if apenas_destaque then
+    return query([[
+      SELECT r.*, j.nome AS jogo_nome, j.imagem_url AS jogo_img, j.genero,
+             a.nome AS autor_nome, a.avatar_url AS autor_avatar
+      FROM reviews r
+      JOIN jogos j ON j.id = r.jogo_id
+      LEFT JOIN autores a ON a.id = r.autor_id
+      WHERE r.destaque = 1
+      ORDER BY r.criado_em DESC
+    ]])
+  end
+  return query([[
+    SELECT r.*, j.nome AS jogo_nome, j.imagem_url AS jogo_img, j.genero,
+           a.nome AS autor_nome, a.avatar_url AS autor_avatar
+    FROM reviews r
+    JOIN jogos j ON j.id = r.jogo_id
+    LEFT JOIN autores a ON a.id = r.autor_id
+    ORDER BY r.criado_em DESC
+  ]])
+end
+
+function M.get_review(id)
+  local rows = query(string.format([[
+    SELECT r.*, j.nome AS jogo_nome, j.imagem_url AS jogo_img, j.genero,
+           a.nome AS autor_nome, a.avatar_url AS autor_avatar
+    FROM reviews r
+    JOIN jogos j ON j.id = r.jogo_id
+    LEFT JOIN autores a ON a.id = r.autor_id
+    WHERE r.id = %d
+  ]], tonumber(id)))
+  return rows[1]
+end
+
+function M.get_review_do_jogo(jogo_id)
+  local rows = query(string.format([[
+    SELECT r.*, a.nome AS autor_nome, a.avatar_url AS autor_avatar
+    FROM reviews r
+    LEFT JOIN autores a ON a.id = r.autor_id
+    WHERE r.jogo_id = %d
+    ORDER BY r.criado_em DESC LIMIT 1
+  ]], tonumber(jogo_id)))
+  return rows[1]
+end
+
+function M.criar_review(jogo_id, titulo, conteudo, notas, pros, contras, veredicto, autor_id, imagem_url, destaque)
+  local conn = M.connect()
+  conn:exec(string.format([[
+    INSERT INTO reviews
+      (jogo_id,titulo,conteudo,nota_geral,nota_gameplay,nota_graficos,nota_historia,nota_audio,
+       pros,contras,veredicto,autor_id,imagem_url,destaque)
+    VALUES (%d,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%d)
+  ]],
+    tonumber(jogo_id), escape(titulo), escape(conteudo),
+    escape(tostring(notas.geral    or 0)),
+    escape(tostring(notas.gameplay or 0)),
+    escape(tostring(notas.graficos or 0)),
+    escape(tostring(notas.historia or 0)),
+    escape(tostring(notas.audio    or 0)),
+    escape(pros or ""), escape(contras or ""), escape(veredicto or ""),
+    autor_id and tostring(tonumber(autor_id)) or "NULL",
+    escape(imagem_url or ""), destaque and 1 or 0
+  ))
+  return conn:last_insert_rowid()
+end
+
+function M.editar_review(id, jogo_id, titulo, conteudo, notas, pros, contras, veredicto, autor_id, imagem_url, destaque)
+  local conn = M.connect()
+  conn:exec(string.format([[
+    UPDATE reviews SET
+      jogo_id=%d,titulo=%s,conteudo=%s,nota_geral=%s,nota_gameplay=%s,
+      nota_graficos=%s,nota_historia=%s,nota_audio=%s,
+      pros=%s,contras=%s,veredicto=%s,autor_id=%s,imagem_url=%s,destaque=%d
+    WHERE id=%d
+  ]],
+    tonumber(jogo_id), escape(titulo), escape(conteudo),
+    escape(tostring(notas.geral    or 0)),
+    escape(tostring(notas.gameplay or 0)),
+    escape(tostring(notas.graficos or 0)),
+    escape(tostring(notas.historia or 0)),
+    escape(tostring(notas.audio    or 0)),
+    escape(pros or ""), escape(contras or ""), escape(veredicto or ""),
+    autor_id and tostring(tonumber(autor_id)) or "NULL",
+    escape(imagem_url or ""), destaque and 1 or 0, tonumber(id)
+  ))
+end
+
+function M.deletar_review(id)
+  local conn = M.connect()
+  conn:exec("DELETE FROM reviews WHERE id=" .. tonumber(id))
+end
+
+function M.incrementar_views_review(id)
+  local conn = M.connect()
+  conn:exec("UPDATE reviews SET views=views+1 WHERE id=" .. tonumber(id))
 end
 
 
