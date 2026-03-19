@@ -292,6 +292,7 @@ app:get("/noticias/:id", function(self)
  
   -- Registra no histórico de leituras
   db.registrar_leitura(leitor_id, self.params.id)
+  db.registrar_leitura_diaria(leitor_id)
   db.adicionar_xp(leitor_id, "leitura")
  
   self.session.views_total = (self.session.views_total or 0) + 1
@@ -326,7 +327,7 @@ app:get("/noticias/:id", function(self)
  
   self.noticia         = noticia
   self.autor           = noticia.autor_id and db.get_autor(noticia.autor_id) or nil
-  self.comentarios     = db.get_comentarios_aprovados(self.params.id)
+  self.comentarios     = db.get_comentarios_arvore(self.params.id)
   self.relacionadas    = db.get_noticias_relacionadas(
                            noticia.id, noticia.jogo, noticia.categoria, 4)
   self.voce_pode_gostar = db.get_voce_pode_gostar(self.params.id, 4)  -- novo
@@ -357,8 +358,11 @@ end)
 -- ─── POST: Enviar comentário ──────────────────────────────────────────────────
 
 app:post("/noticias/:id/comentar", function(self)
-  local autor    = trim(self.params.autor)
-  local conteudo = trim(self.params.conteudo)
+  local autor     = trim(self.params.autor)
+  local conteudo  = trim(self.params.conteudo)
+  local parent_id = tonumber(self.params.parent_id)
+  local leitor_id = get_leitor_id(self)
+
   if conteudo == "" then
     self.session.coment_erro = "O comentário não pode estar vazio."
     return { redirect_to = "/noticias/" .. self.params.id }
@@ -367,16 +371,23 @@ app:post("/noticias/:id/comentar", function(self)
     self.session.coment_erro = "Comentário muito longo (máx. 800 caracteres)."
     return { redirect_to = "/noticias/" .. self.params.id }
   end
-  db.criar_comentario(
+
+  db.criar_comentario_reply(
     self.params.id,
     autor ~= "" and autor or "Anônimo",
-    conteudo
+    conteudo,
+    leitor_id,
+    parent_id
   )
-  db.adicionar_xp(get_leitor_id(self), "comentario")
+
+  db.adicionar_xp(leitor_id, "comentario")
   -- Avisa que está aguardando moderação
   self.session.coment_erro = nil
   self.session.coment_ok   = "Comentário enviado! Ele aparecerá após moderação. ✅"
-  return { redirect_to = "/noticias/" .. self.params.id .. "#comentarios" }
+
+  -- Redireciona para o comentário ou para a lista
+  local anchor = parent_id and ("#coment-" .. parent_id) or "#comentarios"
+  return { redirect_to = "/noticias/" .. self.params.id .. anchor }
 end)
 
 
@@ -1988,129 +1999,36 @@ app:get("/offline", function(self)
 end)
 
 
--- ─── Reviews / Análises ───────────────────────────────────────────────────────
+-- ─── Stats do leitor ─────────────────────────────────────────────────────────
 
-app:get("/reviews", function(self)
-  self.reviews      = db.get_reviews(false)
-  self.og_titulo    = "Reviews & Análises — Portal Gamer"
-  self.og_descricao = "Análises editoriais aprofundadas dos melhores games."
-  self.og_url       = "http://localhost:8080/reviews"
-  return { render = "reviews" }
+app:get("/perfil/stats", function(self)
+  local leitor_id    = get_leitor_id(self)
+  local config       = db.get_leitor_config(leitor_id)
+  self.stats         = db.get_stats_leitor(leitor_id)
+  self.leituras_graf = db.get_leituras_por_dia(leitor_id, 30)
+  self.nivel_info    = db.calcular_nivel(config.xp or 0)
+  self.leitor_avatar = config.avatar
+  self.leitor_nome   = config.nome or "Perfil"
+  self.og_titulo     = "Minhas Estatísticas — Portal Gamer"
+  self.og_url        = "http://localhost:8080/perfil/stats"
+  return { render = "perfil_stats" }
 end)
 
-app:get("/reviews/:id", function(self)
-  local review = db.get_review(self.params.id)
-  if not review then return { status = 404, render = "erro" } end
-  db.incrementar_views_review(self.params.id)
-  self.review        = review
-  self.tempo_leitura = db.tempo_leitura(review.conteudo)
-  self.og_titulo     = "Review: " .. review.jogo_nome
-  self.og_descricao  = review.veredicto ~= "" and review.veredicto or review.conteudo:sub(1,160)
-  self.og_url        = "http://localhost:8080/reviews/" .. review.id
-  self.og_imagem     = review.imagem_url ~= "" and review.imagem_url or review.jogo_img
-  self.og_tipo       = "article"
-  return { render = "review_detalhe" }
-end)
+-- ─── Admin: Leitores ──────────────────────────────────────────────────────────
 
--- Admin: CRUD de reviews
-app:get("/admin/reviews", function(self)
+app:get("/admin/leitores", function(self)
   if not auth.require_login(self) then return end
-  self.reviews = db.get_reviews(false)
-  return { render = "admin.admin_reviews", layout = "admin.admin_layout" }
-end)
-
-app:get("/admin/reviews/novo", function(self)
-  if not auth.require_login(self) then return end
-  self.jogos   = db.get_jogos()
-  self.autores = db.get_autores()
-  self.erro    = self.session.form_erro; self.session.form_erro = nil
-  return { render = "admin.admin_review_form", layout = "admin.admin_layout" }
-end)
-
-app:post("/admin/reviews/novo", function(self)
-  if not auth.require_login(self) then return end
-  local titulo = trim(self.params.titulo or "")
-  local conteudo = trim(self.params.conteudo or "")
-  if titulo == "" or conteudo == "" then
-    self.session.form_erro = "Título e conteúdo são obrigatórios."
-    return { redirect_to = "/admin/reviews/novo" }
+  local pagina = tonumber(self.params.pagina) or 1
+  local result = db.get_leitores_admin(pagina, 20)
+  self.leitores     = result.rows
+  self.pagina       = result.pagina
+  self.total_pag    = result.total_paginas
+  self.total        = result.total
+  -- Enriquece com nível calculado
+  for _, l in ipairs(self.leitores) do
+    l.nivel_info = db.calcular_nivel(l.xp or 0)
   end
-  local notas = {
-    geral    = tonumber(self.params.nota_geral)    or 0,
-    gameplay = tonumber(self.params.nota_gameplay) or 0,
-    graficos = tonumber(self.params.nota_graficos) or 0,
-    historia = tonumber(self.params.nota_historia) or 0,
-    audio    = tonumber(self.params.nota_audio)    or 0,
-  }
-  db.criar_review(
-    tonumber(self.params.jogo_id), titulo, conteudo, notas,
-    trim(self.params.pros), trim(self.params.contras),
-    trim(self.params.veredicto),
-    tonumber(self.params.autor_id) or nil,
-    trim(self.params.imagem_url),
-    self.params.destaque == "1"
-  )
-  db.log("criar_review", "reviews", titulo, ngx.var.remote_addr or "")
-  return { redirect_to = "/admin/reviews" }
-end)
-
-app:get("/admin/reviews/:id/editar", function(self)
-  if not auth.require_login(self) then return end
-  local review = db.get_review(self.params.id)
-  if not review then return { status = 404, render = "erro" } end
-  self.review  = review
-  self.jogos   = db.get_jogos()
-  self.autores = db.get_autores()
-  self.erro    = self.session.form_erro; self.session.form_erro = nil
-  return { render = "admin.admin_review_editar", layout = "admin.admin_layout" }
-end)
-
-app:post("/admin/reviews/:id/editar", function(self)
-  if not auth.require_login(self) then return end
-  local titulo   = trim(self.params.titulo   or "")
-  local conteudo = trim(self.params.conteudo or "")
-  if titulo == "" or conteudo == "" then
-    self.session.form_erro = "Título e conteúdo são obrigatórios."
-    return { redirect_to = "/admin/reviews/" .. self.params.id .. "/editar" }
-  end
-  local notas = {
-    geral    = tonumber(self.params.nota_geral)    or 0,
-    gameplay = tonumber(self.params.nota_gameplay) or 0,
-    graficos = tonumber(self.params.nota_graficos) or 0,
-    historia = tonumber(self.params.nota_historia) or 0,
-    audio    = tonumber(self.params.nota_audio)    or 0,
-  }
-  db.editar_review(
-    self.params.id, tonumber(self.params.jogo_id), titulo, conteudo, notas,
-    trim(self.params.pros), trim(self.params.contras),
-    trim(self.params.veredicto),
-    tonumber(self.params.autor_id) or nil,
-    trim(self.params.imagem_url),
-    self.params.destaque == "1"
-  )
-  return { redirect_to = "/admin/reviews" }
-end)
-
-app:post("/admin/reviews/:id/deletar", function(self)
-  if not auth.require_login(self) then return end
-  db.deletar_review(self.params.id)
-  return { redirect_to = "/admin/reviews" }
-end)
-
--- ─── API: Tema customizável ───────────────────────────────────────────────────
--- Salva preferências de tema do leitor (cor accent, fonte, etc.)
--- Tudo via localStorage no cliente — sem rota server-side necessária
--- A rota abaixo apenas valida e confirma
-app:post("/api/tema", function(self)
-  local leitor_id = get_leitor_id(self)
-  local tema      = trim(self.params.tema or "dark")
-  local accent    = trim(self.params.accent or "")
-  -- Salva na sessão para persistência básica
-  self.session.tema_custom = {
-    tema   = tema,
-    accent = accent ~= "" and accent or nil,
-  }
-  return { json = { status = "ok" } }
+  return { render = "admin.admin_leitores", layout = "admin.admin_layout" }
 end)
 
 

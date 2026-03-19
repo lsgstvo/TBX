@@ -1,4 +1,3 @@
--- views/noticia_detalhe.lua
 local Widget = require("lapis.html").Widget
 
 return Widget:extend(function(self)
@@ -251,28 +250,65 @@ if self.voce_pode_gostar and #self.voce_pode_gostar > 0 then
         if self.flash_coment_ok then
           div({ class = "newsletter-flash coment-ok-flash" }, self.flash_coment_ok)
         end
+
         if self.comentarios and #self.comentarios > 0 then
           div({ class = "comentarios-lista" }, function()
             for _, com in ipairs(self.comentarios) do
-              div({ class = "comentario" }, function()
+              div({ class = "comentario", id = "coment-" .. com.id }, function()
                 div({ class = "comentario-header" }, function()
                   span({ class = "comentario-autor" }, com.autor)
                   span({ class = "comentario-data" }, com.criado_em:sub(1, 16))
+                  button({ class   = "reply-btn",
+                           onclick = "abrirReply(" .. com.id .. ", '" .. com.autor:gsub("'","") .. "')" },
+                         "↩ Responder")
                 end)
                 p({ class = "comentario-texto" }, com.conteudo)
+
+                -- Form de reply (oculto por padrão)
+                div({ id = "reply-form-" .. com.id, class = "reply-form" }, function()
+                  form({ method = "POST",
+                         action = "/noticias/" .. self.noticia.id .. "/comentar" }, function()
+                    input({ type = "hidden", name = "parent_id", value = tostring(com.id) })
+                    p({ class = "reply-hint" }, "↩ Respondendo a " .. com.autor)
+                    textarea({ name = "conteudo", rows = "3", class = "reply-textarea",
+                               placeholder = "Sua resposta...", maxlength = "800", required = true })
+                    div({ class = "reply-actions" }, function()
+                      button({ type = "submit", class = "btn-comentar" }, "Enviar resposta")
+                      button({ type    = "button", class = "btn-cancelar-reply",
+                               onclick = "fecharReply(" .. com.id .. ")" }, "Cancelar")
+                    end)
+                  end)
+                end)
+
+                -- Respostas em thread
+                if com.respostas and #com.respostas > 0 then
+                  div({ class = "thread-respostas" }, function()
+                    for _, resp in ipairs(com.respostas) do
+                      div({ class = "comentario comentario-reply" }, function()
+                        div({ class = "comentario-header" }, function()
+                          span({ class = "reply-ico" }, "↩")
+                          span({ class = "comentario-autor" }, resp.autor)
+                          span({ class = "comentario-data" }, resp.criado_em:sub(1, 16))
+                        end)
+                        p({ class = "comentario-texto" }, resp.conteudo)
+                      end)
+                    end
+                  end)
+                end
               end)
             end
           end)
         else
           p({ class = "sem-dados" }, "Seja o primeiro a comentar!")
         end
+
         div({ class = "comentario-form-wrapper" }, function()
           h4("Deixe seu comentário")
           p({ class = "field-hint", style = "margin-bottom:.6rem" },
             "Os comentários passam por moderação antes de aparecer.")
           form({ method = "POST",
                  action = "/noticias/" .. self.noticia.id .. "/comentar",
-                 class  = "comentario-form" }, function()
+                 class  = "comentario-form", id = "form-comentario-principal" }, function()
             div({ class = "form-group" }, function()
               label({ ["for"] = "autor" }, "Nome (opcional)")
               input({ type = "text", id = "autor", name = "autor",
@@ -288,31 +324,6 @@ if self.voce_pode_gostar and #self.voce_pode_gostar > 0 then
           end)
         end)
       end)
-    end)
-
-    -- ── Chat ao vivo ──────────────────────────────────────────────────────────
-    section({ class = "shadow-card mt-2 chat-section" }, function()
-      div({ class = "chat-header" }, function()
-        h3(function()
-          span("💬 Chat ao Vivo")
-          span({ id = "chat-online", class = "chat-online-badge" }, "🟢 Ao vivo")
-        end)
-        span({ id = "chat-count", class = "chat-count" }, "")
-      end)
-      div({ id = "chat-mensagens", class = "chat-mensagens" }, function()
-        p({ class = "chat-carregando" }, "Carregando mensagens...")
-      end)
-      div({ class = "chat-input-area" }, function()
-        input({ type        = "text",
-                id          = "chat-input",
-                class       = "chat-input",
-                placeholder = "Digite sua mensagem...",
-                maxlength   = "300",
-                onkeydown   = "if(event.key==='Enter')enviarChat()" })
-        button({ class   = "chat-send-btn",
-                 onclick = "enviarChat()" }, "➤")
-      end)
-      p({ class = "chat-hint" }, "Chat público · mensagens ficam 7 dias · seja respeitoso")
     end)
 
     -- ── Sidebar ────────────────────────────────────────────────────────────
@@ -366,6 +377,51 @@ if self.voce_pode_gostar and #self.voce_pode_gostar > 0 then
       end)
 
     end)
+  end) -- Fim de detalhe-layout
+  
+  -- Botão flutuante e Painel do Modo Leitura Avançada
+  button({ class   = "leitura-float-btn",
+           id      = "leitura-float-btn",
+           onclick = "toggleLeituraPainel()",
+           title   = "Modo Leitura Avançada" }, "📖")
+
+  div({ id = "leitura-painel", class = "leitura-painel" }, function()
+    div({ class = "leitura-painel-header" }, function()
+      span("⚙️ Opções de Leitura")
+      button({ class   = "leitura-painel-fechar",
+               onclick = "toggleLeituraPainel()" }, "✕")
+    end)
+    div({ class = "leitura-painel-body" }, function()
+      -- Fonte
+      span({ class = "leitura-opt-label" }, "Fonte")
+      div({ class = "leitura-opt-row" }, function()
+        button({ class="leitura-opt-btn", ["data-opt"]="font", ["data-val"]="sans" }, "Sans")
+        button({ class="leitura-opt-btn", ["data-opt"]="font", ["data-val"]="serif" }, "Serif")
+        button({ class="leitura-opt-btn", ["data-opt"]="font", ["data-val"]="mono" }, "Mono")
+      end)
+      -- Tamanho
+      span({ class = "leitura-opt-label" }, "Tamanho do Texto")
+      div({ class = "leitura-opt-row" }, function()
+        button({ class="leitura-opt-btn", ["data-opt"]="size", ["data-val"]="sm" }, "A-")
+        button({ class="leitura-opt-btn", ["data-opt"]="size", ["data-val"]="md" }, "A")
+        button({ class="leitura-opt-btn", ["data-opt"]="size", ["data-val"]="lg" }, "A+")
+        button({ class="leitura-opt-btn", ["data-opt"]="size", ["data-val"]="xl" }, "A++")
+      end)
+      -- Espaçamento
+      span({ class = "leitura-opt-label" }, "Espaçamento")
+      div({ class = "leitura-opt-row" }, function()
+        button({ class="leitura-opt-btn", ["data-opt"]="space", ["data-val"]="compact" }, "Compacto")
+        button({ class="leitura-opt-btn", ["data-opt"]="space", ["data-val"]="normal" }, "Normal")
+        button({ class="leitura-opt-btn", ["data-opt"]="space", ["data-val"]="relaxed" }, "Relaxado")
+      end)
+      -- Largura
+      span({ class = "leitura-opt-label" }, "Largura Máxima")
+      div({ class = "leitura-opt-row" }, function()
+        button({ class="leitura-opt-btn", ["data-opt"]="width", ["data-val"]="narrow" }, "Estreito")
+        button({ class="leitura-opt-btn", ["data-opt"]="width", ["data-val"]="standard" }, "Normal")
+        button({ class="leitura-opt-btn", ["data-opt"]="width", ["data-val"]="wide" }, "Largo")
+      end)
+    end)
   end)
 
   -- Scripts
@@ -373,6 +429,68 @@ if self.voce_pode_gostar and #self.voce_pode_gostar > 0 then
     raw(string.format([[
       var NOTICIA_ID = %d;
       var NOVAS_CONQUISTAS = ]] .. (self.conquistas_json or "[]") .. [[;
+
+      // ── Thread de Comentários ─────────────────────────────────────────
+      function abrirReply(id, autor) {
+        fecharTodaysReplies();
+        var form = document.getElementById('reply-form-' + id);
+        if (form) {
+            form.classList.add('reply-ativo');
+            var txt = form.querySelector('textarea');
+            if (txt) txt.focus();
+        }
+      }
+      function fecharReply(id) {
+        var form = document.getElementById('reply-form-' + id);
+        if (form) form.classList.remove('reply-ativo');
+      }
+      function fecharTodaysReplies() {
+        document.querySelectorAll('.reply-form').forEach(function(f) {
+           f.classList.remove('reply-ativo');
+        });
+      }
+
+      // ── Modo Leitura Avançada ─────────────────────────────────────────
+      var cfgLeitura = JSON.parse(localStorage.getItem('modo_leitura_av') || '{}');
+      
+      function aplicarConfigLeitura(cfg) {
+        var corpo = document.getElementById('noticia-corpo');
+        if (!corpo) return;
+        
+        // Remove classes anteriores
+        corpo.classList.remove('font-sans','font-serif','font-mono','size-sm','size-md','size-lg','size-xl','space-compact','space-normal','space-relaxed','width-narrow','width-standard','width-wide');
+        
+        if (cfg.font)  corpo.classList.add('font-' + cfg.font);
+        if (cfg.size)  corpo.classList.add('size-' + cfg.size);
+        if (cfg.space) corpo.classList.add('space-' + cfg.space);
+        if (cfg.width) corpo.classList.add('width-' + cfg.width);
+        
+        // Atualiza botões ativos no painel
+        document.querySelectorAll('.leitura-opt-btn').forEach(function(btn) {
+           var opt = btn.dataset.opt;
+           var val = btn.dataset.val;
+           btn.classList.toggle('leitura-opt-ativo', cfg[opt] === val);
+        });
+        localStorage.setItem('modo_leitura_av', JSON.stringify(cfg));
+      }
+
+      function toggleLeituraPainel() {
+        var p = document.getElementById('leitura-painel');
+        if (p) p.classList.toggle('leitura-painel-visivel');
+      }
+
+      document.querySelectorAll('.leitura-opt-btn').forEach(function(btn) {
+        btn.onclick = function() {
+          cfgLeitura[this.dataset.opt] = this.dataset.val;
+          aplicarConfigLeitura(cfgLeitura);
+        };
+      });
+
+      // Inicializa
+      if (!cfgLeitura.size) { // Defaults
+        cfgLeitura = { font:'sans', size:'md', space:'normal', width:'standard' };
+      }
+      aplicarConfigLeitura(cfgLeitura);
 
       // ── Tempo de leitura ─────────────────────────────────────────────
       (function() {

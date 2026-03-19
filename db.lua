@@ -437,28 +437,18 @@ function M.connect()
   ]])
 
 
-  -- Reviews/análises editoriais de jogos
+  -- Migração: coluna parent_id em comentarios (respostas em thread)
+  pcall(function() db_conn:exec("ALTER TABLE comentarios ADD COLUMN parent_id INTEGER REFERENCES comentarios(id) ON DELETE CASCADE") end)
+  pcall(function() db_conn:exec("ALTER TABLE comentarios ADD COLUMN leitor_id TEXT NOT NULL DEFAULT ''") end)
+
+  -- Histórico diário de leituras por leitor (para gráfico de stats)
   db_conn:exec([[
-    CREATE TABLE IF NOT EXISTS reviews (
-      id           INTEGER PRIMARY KEY AUTOINCREMENT,
-      jogo_id      INTEGER NOT NULL,
-      titulo       TEXT    NOT NULL,
-      conteudo     TEXT    NOT NULL,
-      nota_geral   REAL    NOT NULL DEFAULT 0,
-      nota_gameplay REAL   NOT NULL DEFAULT 0,
-      nota_graficos REAL   NOT NULL DEFAULT 0,
-      nota_historia REAL   NOT NULL DEFAULT 0,
-      nota_audio   REAL    NOT NULL DEFAULT 0,
-      pros         TEXT    NOT NULL DEFAULT '',
-      contras      TEXT    NOT NULL DEFAULT '',
-      veredicto    TEXT    NOT NULL DEFAULT '',
-      autor_id     INTEGER,
-      imagem_url   TEXT    NOT NULL DEFAULT '',
-      destaque     INTEGER NOT NULL DEFAULT 0,
-      views        INTEGER NOT NULL DEFAULT 0,
-      criado_em    TEXT    NOT NULL DEFAULT (datetime('now')),
-      FOREIGN KEY (jogo_id)  REFERENCES jogos(id)   ON DELETE CASCADE,
-      FOREIGN KEY (autor_id) REFERENCES autores(id) ON DELETE SET NULL
+    CREATE TABLE IF NOT EXISTS leituras_diarias (
+      id         INTEGER PRIMARY KEY AUTOINCREMENT,
+      leitor_id  TEXT    NOT NULL,
+      data       TEXT    NOT NULL,
+      total      INTEGER NOT NULL DEFAULT 1,
+      UNIQUE(leitor_id, data)
     );
   ]])
 
@@ -3057,103 +3047,180 @@ function M.get_seo_global(pagina, por_pagina, ordem)
 end
 
 
--- ─── Reviews / Análises ───────────────────────────────────────────────────────
+-- ─── Comentários em thread (reply) ────────────────────────────────────────────
 
-function M.get_reviews(apenas_destaque)
-  if apenas_destaque then
-    return query([[
-      SELECT r.*, j.nome AS jogo_nome, j.imagem_url AS jogo_img, j.genero,
-             a.nome AS autor_nome, a.avatar_url AS autor_avatar
-      FROM reviews r
-      JOIN jogos j ON j.id = r.jogo_id
-      LEFT JOIN autores a ON a.id = r.autor_id
-      WHERE r.destaque = 1
-      ORDER BY r.criado_em DESC
-    ]])
+-- Retorna comentários aprovados de uma notícia em estrutura de árvore
+function M.get_comentarios_arvore(noticia_id)
+  noticia_id = tonumber(noticia_id)
+  -- Busca todos aprovados
+  local todos = query(string.format([[
+    SELECT * FROM comentarios
+    WHERE noticia_id=%d AND aprovado=1
+    ORDER BY criado_em ASC
+  ]], noticia_id))
+
+  -- Organiza: raízes + filhos
+  local raizes = {}
+  local filhos  = {}  -- { [parent_id] = { lista de filhos } }
+  for _, c in ipairs(todos) do
+    local pid = tonumber(c.parent_id)
+    if pid and pid > 0 then
+      filhos[pid] = filhos[pid] or {}
+      table.insert(filhos[pid], c)
+    else
+      table.insert(raizes, c)
+    end
   end
-  return query([[
-    SELECT r.*, j.nome AS jogo_nome, j.imagem_url AS jogo_img, j.genero,
-           a.nome AS autor_nome, a.avatar_url AS autor_avatar
-    FROM reviews r
-    JOIN jogos j ON j.id = r.jogo_id
-    LEFT JOIN autores a ON a.id = r.autor_id
-    ORDER BY r.criado_em DESC
-  ]])
+
+  -- Enriquece cada raiz com seus filhos diretos
+  for _, r in ipairs(raizes) do
+    r.respostas = filhos[r.id] or {}
+  end
+  return raizes
 end
 
-function M.get_review(id)
-  local rows = query(string.format([[
-    SELECT r.*, j.nome AS jogo_nome, j.imagem_url AS jogo_img, j.genero,
-           a.nome AS autor_nome, a.avatar_url AS autor_avatar
-    FROM reviews r
-    JOIN jogos j ON j.id = r.jogo_id
-    LEFT JOIN autores a ON a.id = r.autor_id
-    WHERE r.id = %d
-  ]], tonumber(id)))
-  return rows[1]
-end
-
-function M.get_review_do_jogo(jogo_id)
-  local rows = query(string.format([[
-    SELECT r.*, a.nome AS autor_nome, a.avatar_url AS autor_avatar
-    FROM reviews r
-    LEFT JOIN autores a ON a.id = r.autor_id
-    WHERE r.jogo_id = %d
-    ORDER BY r.criado_em DESC LIMIT 1
-  ]], tonumber(jogo_id)))
-  return rows[1]
-end
-
-function M.criar_review(jogo_id, titulo, conteudo, notas, pros, contras, veredicto, autor_id, imagem_url, destaque)
+-- Cria comentário (com suporte a parent_id para reply)
+function M.criar_comentario_reply(noticia_id, autor, conteudo, leitor_id, parent_id)
   local conn = M.connect()
-  conn:exec(string.format([[
-    INSERT INTO reviews
-      (jogo_id,titulo,conteudo,nota_geral,nota_gameplay,nota_graficos,nota_historia,nota_audio,
-       pros,contras,veredicto,autor_id,imagem_url,destaque)
-    VALUES (%d,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%d)
-  ]],
-    tonumber(jogo_id), escape(titulo), escape(conteudo),
-    escape(tostring(notas.geral    or 0)),
-    escape(tostring(notas.gameplay or 0)),
-    escape(tostring(notas.graficos or 0)),
-    escape(tostring(notas.historia or 0)),
-    escape(tostring(notas.audio    or 0)),
-    escape(pros or ""), escape(contras or ""), escape(veredicto or ""),
-    autor_id and tostring(tonumber(autor_id)) or "NULL",
-    escape(imagem_url or ""), destaque and 1 or 0
+  local pid  = tonumber(parent_id)
+  -- Valida que parent pertence à mesma notícia
+  if pid and pid > 0 then
+    local ok = query(string.format(
+      "SELECT id FROM comentarios WHERE id=%d AND noticia_id=%d LIMIT 1",
+      pid, tonumber(noticia_id)
+    ))
+    if #ok == 0 then pid = nil end
+  end
+  conn:exec(string.format(
+    "INSERT INTO comentarios (noticia_id,autor,conteudo,leitor_id,parent_id) VALUES (%d,%s,%s,%s,%s)",
+    tonumber(noticia_id),
+    escape(autor or "Anônimo"),
+    escape(conteudo),
+    escape(leitor_id or ""),
+    pid and tostring(pid) or "NULL"
   ))
   return conn:last_insert_rowid()
 end
 
-function M.editar_review(id, jogo_id, titulo, conteudo, notas, pros, contras, veredicto, autor_id, imagem_url, destaque)
+-- ─── Stats do leitor ─────────────────────────────────────────────────────────
+
+-- Registra leitura diária (para o gráfico)
+function M.registrar_leitura_diaria(leitor_id)
+  if not leitor_id or leitor_id == "" then return end
   local conn = M.connect()
+  local hoje = os.date("%Y-%m-%d")
   conn:exec(string.format([[
-    UPDATE reviews SET
-      jogo_id=%d,titulo=%s,conteudo=%s,nota_geral=%s,nota_gameplay=%s,
-      nota_graficos=%s,nota_historia=%s,nota_audio=%s,
-      pros=%s,contras=%s,veredicto=%s,autor_id=%s,imagem_url=%s,destaque=%d
-    WHERE id=%d
-  ]],
-    tonumber(jogo_id), escape(titulo), escape(conteudo),
-    escape(tostring(notas.geral    or 0)),
-    escape(tostring(notas.gameplay or 0)),
-    escape(tostring(notas.graficos or 0)),
-    escape(tostring(notas.historia or 0)),
-    escape(tostring(notas.audio    or 0)),
-    escape(pros or ""), escape(contras or ""), escape(veredicto or ""),
-    autor_id and tostring(tonumber(autor_id)) or "NULL",
-    escape(imagem_url or ""), destaque and 1 or 0, tonumber(id)
-  ))
+    INSERT INTO leituras_diarias (leitor_id, data, total)
+    VALUES (%s, '%s', 1)
+    ON CONFLICT(leitor_id, data) DO UPDATE SET total=total+1
+  ]], escape(leitor_id), hoje))
 end
 
-function M.deletar_review(id)
-  local conn = M.connect()
-  conn:exec("DELETE FROM reviews WHERE id=" .. tonumber(id))
+-- Leituras por dia nos últimos N dias (para gráfico)
+function M.get_leituras_por_dia(leitor_id, dias)
+  if not leitor_id or leitor_id == "" then return {} end
+  dias = tonumber(dias) or 30
+  return query(string.format([[
+    SELECT data, total FROM leituras_diarias
+    WHERE leitor_id=%s AND data >= date('now','-%d days')
+    ORDER BY data ASC
+  ]], escape(leitor_id), dias))
 end
 
-function M.incrementar_views_review(id)
-  local conn = M.connect()
-  conn:exec("UPDATE reviews SET views=views+1 WHERE id=" .. tonumber(id))
+-- Stats gerais do leitor
+function M.get_stats_leitor(leitor_id)
+  if not leitor_id or leitor_id == "" then return {} end
+
+  local total_lidas = query(string.format(
+    "SELECT COUNT(*) AS n FROM historico_leituras WHERE leitor_id=%s",
+    escape(leitor_id)
+  ))[1].n
+
+  local total_favoritos = query(string.format(
+    "SELECT COUNT(*) AS n FROM favoritos WHERE leitor_id=%s",
+    escape(leitor_id)
+  ))[1].n
+
+  local total_comentarios = query(string.format(
+    "SELECT COUNT(*) AS n FROM comentarios WHERE leitor_id=%s",
+    escape(leitor_id)
+  ))[1].n
+
+  local total_conquistas = query(string.format(
+    "SELECT COUNT(*) AS n FROM conquistas WHERE leitor_id=%s",
+    escape(leitor_id)
+  ))[1].n
+
+  -- Categorias preferidas com percentual
+  local cats = M.get_categorias_preferidas(leitor_id)
+  local total_cats = 0
+  for _, c in ipairs(cats) do total_cats = total_cats + c.total end
+  for _, c in ipairs(cats) do
+    c.pct = total_cats > 0 and math.floor((c.total / total_cats) * 100) or 0
+  end
+
+  -- Dia mais ativo
+  local dia_ativo = query(string.format([[
+    SELECT data, total FROM leituras_diarias
+    WHERE leitor_id=%s ORDER BY total DESC LIMIT 1
+  ]], escape(leitor_id)))[1]
+
+  -- Sequência atual (streak de dias consecutivos)
+  local streak = 0
+  local dias_ativos = query(string.format([[
+    SELECT data FROM leituras_diarias
+    WHERE leitor_id=%s ORDER BY data DESC LIMIT 30
+  ]], escape(leitor_id)))
+  if #dias_ativos > 0 then
+    local hoje = os.date("%Y-%m-%d")
+    local esperado = hoje
+    for _, d in ipairs(dias_ativos) do
+      if d.data == esperado then
+        streak = streak + 1
+        -- Subtrai 1 dia
+        local t = os.time()
+        local dt = os.date("*t", t)
+        dt.day = dt.day - streak
+        esperado = os.date("%Y-%m-%d", os.time(dt))
+      else
+        break
+      end
+    end
+  end
+
+  return {
+    total_lidas     = total_lidas,
+    total_favoritos = total_favoritos,
+    total_coments   = total_comentarios,
+    total_conquistas = total_conquistas,
+    categorias      = cats,
+    dia_ativo       = dia_ativo,
+    streak          = streak,
+  }
+end
+
+-- Admin: lista todos os leitores com XP e nível
+function M.get_leitores_admin(pagina, por_pagina)
+  pagina     = tonumber(pagina)     or 1
+  por_pagina = tonumber(por_pagina) or 20
+  local total  = query("SELECT COUNT(*) AS n FROM leitores")[1].n
+  local offset = (pagina - 1) * por_pagina
+  local rows   = query(string.format([[
+    SELECT l.*,
+      (SELECT COUNT(*) FROM conquistas   WHERE leitor_id=l.leitor_id) AS total_conquistas,
+      (SELECT COUNT(*) FROM favoritos    WHERE leitor_id=l.leitor_id) AS total_favoritos,
+      (SELECT COUNT(*) FROM historico_leituras WHERE leitor_id=l.leitor_id) AS total_lidas,
+      (SELECT COUNT(*) FROM comentarios  WHERE leitor_id=l.leitor_id) AS total_coments
+    FROM leitores l
+    ORDER BY COALESCE(l.xp,0) DESC
+    LIMIT %d OFFSET %d
+  ]], por_pagina, offset))
+  return {
+    rows          = rows,
+    total         = total,
+    pagina        = pagina,
+    total_paginas = math.ceil(total / por_pagina),
+  }
 end
 
 

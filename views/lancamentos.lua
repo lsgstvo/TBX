@@ -1,4 +1,3 @@
--- views/lancamentos.lua
 local Widget = require("lapis.html").Widget
 
 return Widget:extend(function(self)
@@ -110,18 +109,45 @@ return Widget:extend(function(self)
     end)
   end
 
-  -- Script: countdown em dias
+  -- Script: countdown avançado (anos/meses/dias, atualiza à meia-noite)
   script(function()
     raw([[
-      document.querySelectorAll('.lancamento-countdown').forEach(function(el) {
-        var data  = new Date(el.dataset.date + 'T00:00:00');
-        var hoje  = new Date(); hoje.setHours(0,0,0,0);
-        var diff  = Math.round((data - hoje) / (1000*60*60*24));
-        if (diff > 0)
-          el.textContent = '(' + diff + ' dias)';
-        else if (diff === 0)
-          el.textContent = '(hoje!)';
-      });
+      (function() {
+        function calcularCountdown(dataStr) {
+          var hoje = new Date(); hoje.setHours(0,0,0,0);
+          var alvo = new Date(dataStr + 'T00:00:00');
+          var diff = Math.round((alvo - hoje) / (1000*60*60*24));
+          if (diff < 0)  return null;
+          if (diff === 0) return { hoje: true };
+
+          var anos = 0, meses = 0, dias = diff;
+          if (dias >= 365) { anos = Math.floor(dias/365); dias = dias % 365; }
+          if (dias >= 30)  { meses = Math.floor(dias/30); dias = dias % 30; }
+          return { anos: anos, meses: meses, dias: dias };
+        }
+
+        function renderizar() {
+          document.querySelectorAll('.lancamento-countdown').forEach(function(el) {
+            var cd = calcularCountdown(el.dataset.date);
+            if (!cd) { el.textContent = ''; return; }
+            if (cd.hoje) {
+              el.innerHTML = '<span class="cd-hoje">🎉 Hoje!</span>';
+              return;
+            }
+            var partes = [];
+            if (cd.anos  > 0) partes.push('<b>' + cd.anos  + '</b> ano'  + (cd.anos>1?'s':''));
+            if (cd.meses > 0) partes.push('<b>' + cd.meses + '</b> mês'  + (cd.meses>1?'es':''));
+            partes.push('<b>' + cd.dias + '</b> dia' + (cd.dias!==1?'s':''));
+            el.innerHTML = '(' + partes.join(' ') + ')';
+          });
+        }
+
+        renderizar();
+        // Atualiza à meia-noite
+        var agora = new Date();
+        var msMeiaNoite = new Date(agora.getFullYear(), agora.getMonth(), agora.getDate()+1) - agora;
+        setTimeout(function() { renderizar(); setInterval(renderizar, 86400000); }, msMeiaNoite);
+      })();
     ]])
   end)
 end)
